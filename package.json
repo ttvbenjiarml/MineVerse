@@ -1,5 +1,5 @@
 {
-  "name": "mineforgeai-omniverse",
+  "name": "mineforge",
   "version": "1.0.0",
   "description": "Local AI chatbot and coding agent for Minecraft development.",
   "type": "module",
@@ -25,6 +25,14 @@
   "engines": {
     "node": ">=20"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ttvbenjiarml/MineVerse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ttvbenjiarml/MineVerse/issues"
+  },
+  "homepage": "https://github.com/ttvbenjiarml/MineVerse#readme",
   "devDependencies": {
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",

@@ -1,4 +1,17 @@
-# Exclude everything except files we want published
+node_modules
+.git
+data/raw/
+data/processed/
+**/__pycache__/
+*.pyc
+*.log
+.vscode
+.env
+.venv
+package-lock.json
+npm-debug.log
+dist/
+build/# Exclude everything except files we want published
 *
 !bin/
 !lib-node/
