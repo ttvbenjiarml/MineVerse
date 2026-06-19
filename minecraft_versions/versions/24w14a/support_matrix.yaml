@@ -1,0 +1,5 @@
+fabric: best_effort
+quilt: best_effort
+forge: limited
+neoforge: limited
+paper: limited

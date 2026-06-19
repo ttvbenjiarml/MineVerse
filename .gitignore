@@ -1,0 +1,15 @@
+.venv/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+.mineforgeai/
+.minecraft_index/
+.minecraft_jars/
+python-backend/.venv/
+python-backend/checkpoints/
+python-backend/models/
+python-backend/data/processed/
+python-backend/data/tokenizer/
+logs/

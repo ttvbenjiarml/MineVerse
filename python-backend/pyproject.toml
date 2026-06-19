@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mineforgeai-omniverse-backend"
+version = "1.0.0"
+description = "Python backend for MineForgeAI Omniverse"
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["mineforgeai/tests"]

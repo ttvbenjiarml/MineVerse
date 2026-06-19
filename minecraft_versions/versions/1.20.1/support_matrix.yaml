@@ -1,0 +1,9 @@
+fabric: supported
+quilt: best_effort
+forge: supported
+neoforge: best_effort
+bukkit: best_effort
+spigot: supported
+paper: supported
+purpur: best_effort
+sponge: best_effort

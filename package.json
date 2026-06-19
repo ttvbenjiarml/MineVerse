@@ -1,0 +1,22 @@
+{
+  "name": "mineforgeai-omniverse",
+  "version": "1.0.0",
+  "description": "Local AI chatbot and coding agent for Minecraft development.",
+  "type": "module",
+  "bin": {
+    "mineforge": "./bin/mineforge.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test",
+    "dev": "tsx src-node/cli.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

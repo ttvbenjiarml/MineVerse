@@ -1,0 +1,20 @@
+id: 1.21.1
+type: release
+release_time: 2024-08-01T00:00:00Z
+update_time: 2024-08-01T00:00:00Z
+client_jar_url: unknown
+server_jar_url: unknown
+libraries: []
+assets_index: unknown
+java_requirement: 21
+official_mappings: best_effort
+yarn: best_effort
+intermediary: best_effort
+mcp_srg: not_applicable
+parchment: best_effort
+datapack_format: unknown
+resource_pack_format: unknown
+known_api_changes:
+  - modern registry and datapack expectations
+known_build_tool_requirements:
+  - Java 21 for current Paper ecosystem
