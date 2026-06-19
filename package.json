@@ -7,11 +7,15 @@
     "mineforge": "bin/mineforge.js"
   },
   "files": [
-    "bin/",
-    "lib-node/",
-    "README.md",
-    "LICENSE",
-    "start_bot.py"
+  "bin/",
+  "lib-node/",
+  "python-backend/",
+  "src-node/",
+  "README.md",
+  "LICENSE",
+  "start_bot.py",
+  "train.py",
+  "package.json"
   ],
   "scripts": {
     "build": "tsc",
