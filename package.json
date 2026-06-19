@@ -4,8 +4,15 @@
   "description": "Local AI chatbot and coding agent for Minecraft development.",
   "type": "module",
   "bin": {
-    "mineforge": "./bin/mineforge.js"
+    "mineforge": "bin/mineforge.js"
   },
+  "files": [
+    "bin/",
+    "lib-node/",
+    "README.md",
+    "LICENSE",
+    "start_bot.py"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "node --test",

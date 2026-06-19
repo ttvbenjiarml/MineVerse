@@ -1,0 +1,8 @@
+# Exclude everything except files we want published
+*
+!bin/
+!lib-node/
+!README.md
+!LICENSE
+!start_bot.py
+!package.json
