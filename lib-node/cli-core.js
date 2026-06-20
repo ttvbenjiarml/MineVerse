@@ -18,6 +18,7 @@ export function getStartupBanner({ workspace, permissionsLabel, webEnabled, hasM
     `Web: ${webEnabled ? "on" : "off"}`,
     "Context: auto-compacting",
     "Commands: /permisions, /web on, /web off",
+    "Update CLI: npm install -g mineforge@latest",
     "",
     "Just tell me what you want to build or fix.",
     "mineforge >"

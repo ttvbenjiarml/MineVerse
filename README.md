@@ -23,7 +23,7 @@ Local install (global from current folder):
 
 ```bash
 npm install -g .
-# or when published: npm install -g mineforge
+# or when published: npm install -g mineforge@latest
 ```
 
 The package runs a postinstall helper that creates the Python `.venv`, installs Python dependencies, registers the backend, and can install a local model archive.
@@ -31,7 +31,7 @@ The package runs a postinstall helper that creates the Python `.venv`, installs 
 Model-backed install from npm:
 
 ```bash
-npm install -g mineforge
+npm install -g mineforge@latest
 ```
 
 When `package.json` points at your GitHub repo, the installer looks for this Release asset automatically:
@@ -44,7 +44,7 @@ Custom model URL override:
 
 ```powershell
 $env:MINEFORGE_MODEL_URL = "https://github.com/ttvbenjiarml/MineVerse/releases/latest/download/mineforge_model_latest.zip"
-npm install -g mineforge
+npm install -g mineforge@latest
 ```
 
 The model ZIP must contain `model.pt`, `tokenizer.json`, and `model_config.json`. It may contain those files at the ZIP root or inside one nested folder. If no model URL is configured, the CLI still installs and uses deterministic Minecraft tools plus any remote model settings you configure later.
