@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: mineforgeai-omniverse-backend
+Version: 1.0.0
+Summary: Python backend for MineForgeAI Omniverse
+Requires-Python: >=3.10
+Requires-Dist: PyYAML>=6.0
