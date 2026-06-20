@@ -25,6 +25,7 @@ import json
 ROOT = Path(__file__).parent
 PY_BACKEND = ROOT / "python-backend"
 VENV_DIR = ROOT / ".venv"
+FALLBACK_VENV_DIR = ROOT / ".venv-py312"
 REQUIRED_MODEL_FILES = ("model.pt", "tokenizer.json", "model_config.json")
 
 
@@ -39,11 +40,94 @@ def _venv_python() -> Path:
     return VENV_DIR / "bin" / "python"
 
 
+def _parse_python_version(output: str) -> tuple[int, int] | None:
+    match = re.search(r"Python\s+(\d+)\.(\d+)", output)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _python_version(command: list[str]) -> tuple[int, int] | None:
+    try:
+        result = subprocess.run([*command, "--version"], capture_output=True, text=True, check=False)
+    except Exception:
+        return None
+    return _parse_python_version((result.stdout or "") + (result.stderr or ""))
+
+
+def _venv_creator_command() -> list[str]:
+    candidates: list[list[str]] = []
+    override = os.environ.get("MINEFORGE_PYTHON")
+    if override:
+        candidates.append([override])
+    if sys.platform.startswith("win"):
+        py_launcher = shutil.which("py")
+        if py_launcher:
+            candidates.extend([[py_launcher, "-3.12"], [py_launcher, "-3.11"], [py_launcher, "-3.10"]])
+    candidates.append([sys.executable])
+    python_on_path = shutil.which("python")
+    if python_on_path:
+        candidates.append([python_on_path])
+
+    seen: set[str] = set()
+    for command in candidates:
+        key = " ".join(command).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        version = _python_version(command)
+        if version and (3, 10) <= version < (3, 13):
+            return command
+
+    current = ".".join(map(str, _python_version([sys.executable]) or (sys.version_info.major, sys.version_info.minor)))
+    raise RuntimeError(
+        f"MineForge training needs Python 3.10, 3.11, or 3.12 for PyTorch dependencies. "
+        f"Current Python is {current}. Install Python 3.12 or set MINEFORGE_PYTHON to a supported python.exe."
+    )
+
+
+def _venv_healthy() -> bool:
+    vpython = _venv_python()
+    if not vpython.exists():
+        return False
+    try:
+        subprocess.run([str(vpython), "-m", "pip", "--version"], capture_output=True, text=True, check=True)
+        return True
+    except Exception:
+        return False
+
+
+def _remove_broken_venv(path: Path) -> bool:
+    if not path.exists():
+        return True
+    root = ROOT.resolve()
+    target = path.resolve()
+    if target.parent != root or target.name not in {".venv", ".venv-py312"}:
+        raise RuntimeError(f"Refusing to remove unexpected venv path: {target}")
+    print(f"Removing incomplete virtualenv at {path}")
+    try:
+        shutil.rmtree(path)
+        return True
+    except PermissionError as exc:
+        print(f"Could not remove {path}: {exc}")
+        return False
+
+
 def create_venv() -> None:
-    if VENV_DIR.exists():
+    global VENV_DIR
+    if _venv_healthy():
         return
+    if VENV_DIR.exists():
+        if not _remove_broken_venv(VENV_DIR):
+            VENV_DIR = FALLBACK_VENV_DIR
+            if _venv_healthy():
+                return
+            if VENV_DIR.exists() and not _remove_broken_venv(VENV_DIR):
+                raise RuntimeError(f"Could not recreate virtualenv at {VENV_DIR}")
     print(f"Creating virtualenv at {VENV_DIR}")
-    run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    creator = _venv_creator_command()
+    print(f"Using Python for venv: {' '.join(creator)}")
+    run([*creator, "-m", "venv", str(VENV_DIR)])
 
 
 def pip_install_requirements():
