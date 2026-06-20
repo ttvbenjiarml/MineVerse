@@ -37,13 +37,13 @@ npm install -g mineforge
 When `package.json` points at your GitHub repo, the installer looks for this Release asset automatically:
 
 ```text
-https://github.com/YOUR_ORG/YOUR_REPO/releases/latest/download/mineforge_model_latest.zip
+https://github.com/ttvbenjiarml/MineVerse/releases/latest/download/mineforge_model_latest.zip
 ```
 
 Custom model URL override:
 
 ```powershell
-$env:MINEFORGE_MODEL_URL = "https://github.com/YOUR_ORG/YOUR_REPO/releases/latest/download/mineforge_model_latest.zip"
+$env:MINEFORGE_MODEL_URL = "https://github.com/ttvbenjiarml/MineVerse/releases/latest/download/mineforge_model_latest.zip"
 npm install -g mineforge
 ```
 
