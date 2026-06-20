@@ -24,7 +24,6 @@ from mineforgeai.model.checkpointing import (
     trained_model_locations,
 )
 from mineforgeai.model.runtime import load_local_model
-from mineforgeai.model.remote_runtime import RemoteModelRuntime
 from mineforgeai.training.trainer import write_training_plan
 
 
@@ -35,10 +34,10 @@ class MFCompleter:
         self.commands = [
             ("/permisions", "permission selector"),
             ("/permissions", "permission selector"),
+            ("/permisssions", "permission selector"),
             ("/web on", "enable web research"),
             ("/web off", "disable web research"),
-            ("/model", "model options"),
-            ("/model set", "choose model mode"),
+            ("/model", "local model status"),
             ("/model status", "diagnose local model"),
             ("/theme", "show CLI theme"),
             ("/theme set codex", "Codex-like theme"),
@@ -104,7 +103,7 @@ def startup_text(workspace: Path, model_label: str, has_model: bool, permission_
         lines = [
             f">_ MineForgeAI (interactive)",
             "",
-            f"model:     {mode}   /model to change",
+            f"model:     {mode}   /model status",
             f"directory: {workspace}",
         ]
 
@@ -273,7 +272,19 @@ class InteractiveApp:
             try:
                 from prompt_toolkit import PromptSession
                 from prompt_toolkit.completion import CompleteStyle
+                from prompt_toolkit.key_binding import KeyBindings
                 from prompt_toolkit.styles import Style
+
+                key_bindings = KeyBindings()
+
+                @key_bindings.add("enter")
+                def _(event):
+                    buffer = event.current_buffer
+                    state = buffer.complete_state
+                    if state and state.current_completion:
+                        buffer.apply_completion(state.current_completion)
+                    else:
+                        buffer.validate_and_handle()
 
                 style = Style.from_dict({
                     "completion-menu.completion": "bg:#1f2937 #d1d5db",
@@ -285,6 +296,7 @@ class InteractiveApp:
                     completer=MFCompleter(self.workspace),
                     complete_while_typing=True,
                     complete_style=CompleteStyle.COLUMN,
+                    key_bindings=key_bindings,
                     reserve_space_for_menu=8,
                     style=style,
                 )
@@ -406,27 +418,12 @@ class InteractiveApp:
         trimmed = text.strip()
         # Load user preferences (model, theme) early so commands can inspect/change them
         memory_payload = load_memory(self.workspace)
-        model_pref = memory_payload.get("model", os.environ.get("MINEFORGE_DEFAULT_MODEL", "auto"))
-
         # CLI model/theme commands
         if trimmed.startswith("/model"):
             parts = trimmed.split()
-            if len(parts) == 1:
-                return f"Model preference: {model_pref}. Options: auto, local, openai, mock. Set with '/model set <name>'."
-            # accept '/model set <name>' or '/model <name>'
-            if parts[1] in ("set", "use") and len(parts) >= 3:
-                choice = parts[2].lower()
-            else:
-                choice = parts[1].lower()
-            # support diagnostic subcommand
-            if choice in {"status", "diagnose", "info"}:
+            if len(parts) == 1 or (len(parts) >= 2 and parts[1].lower() in {"status", "diagnose", "info"}):
                 return self._diagnose_local_model()
-            if choice not in {"auto", "local", "openai", "mock"}:
-                return "Unknown model. Options: auto, local, openai, mock."
-            memory_payload["model"] = choice
-            save_memory(self.workspace, memory_payload)
-            hint = "" if choice != "openai" else " (requires OPENAI_API_KEY env var)"
-            return f"Model preference set to: {choice}{hint}"
+            return "Only the local MineForgeAI model is available. Use `/model status` to inspect it."
 
         if trimmed in {"/model status", "/model diagnose", "/model info"}:
             return self._diagnose_local_model()
@@ -445,7 +442,7 @@ class InteractiveApp:
             memory_payload["ui_theme"] = choice
             save_memory(self.workspace, memory_payload)
             return f"UI theme set to: {choice}"
-        if trimmed in {"/permisions", "/permissions"}:
+        if trimmed in {"/permisions", "/permissions", "/permisssions"}:
             return self._select_permission_mode()
         if trimmed == "/web on":
             self.set_web_enabled(True)
@@ -482,7 +479,7 @@ class InteractiveApp:
             return describe_workspace(self.workspace)
         if route["type"] == "search_workspace":
             return search_workspace_text(self.workspace, route["query"])
-        # Model selection & generation logic (local preferred unless user set otherwise)
+        # Local model generation only; deterministic tools handle requests when it is unavailable.
         prompt = self._build_model_prompt(text)
 
         def try_local():
@@ -499,28 +496,7 @@ class InteractiveApp:
             except Exception:
                 return ""
 
-        def try_remote():
-            try:
-                remote = RemoteModelRuntime()
-                return remote.generate_text(prompt)
-            except Exception:
-                return ""
-
-        generated = ""
-        if model_pref == "local":
-            generated = try_local()
-            if not generated.strip():
-                return "Local model selected but not available or generation failed.\n" + self._diagnose_local_model()
-        elif model_pref == "openai":
-            generated = try_remote()
-            if not generated.strip():
-                return "Remote model failed — check OPENAI_API_KEY or network connectivity."
-        elif model_pref == "mock":
-            generated = RemoteModelRuntime(api_key=None).generate_text(prompt)
-        else:  # auto
-            generated = try_local()
-            if not generated.strip():
-                generated = try_remote()
+        generated = try_local()
         if generated.strip():
             return generated.strip()
         # Fallback: no local model available — provide helpful deterministic responses

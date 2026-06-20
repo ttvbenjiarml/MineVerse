@@ -47,7 +47,7 @@ $env:MINEFORGE_MODEL_URL = "https://github.com/ttvbenjiarml/MineVerse/releases/l
 npm install -g mineforge@latest
 ```
 
-The model ZIP must contain `model.pt`, `tokenizer.json`, and `model_config.json`. It may contain those files at the ZIP root or inside one nested folder. If no model URL is configured, the CLI still installs and uses deterministic Minecraft tools plus any remote model settings you configure later.
+The model ZIP must contain `model.pt`, `tokenizer.json`, and `model_config.json`. It may contain those files at the ZIP root or inside one nested folder. If no model URL is configured, the CLI still installs and uses deterministic Minecraft tools until a local model is available.
 
 The first launch may create a `.venv` and install dependencies; this happens automatically.
 
