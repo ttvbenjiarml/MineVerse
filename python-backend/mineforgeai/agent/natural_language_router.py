@@ -51,6 +51,7 @@ def route_message(text: str) -> dict:
         return {"type": "search_workspace", "query": query.strip()}
     if "paper" in normalized and "plugin" in normalized:
         sword = "sword" in normalized
+        boss_arena = "boss" in normalized or "arena" in normalized
         project_name = _project_name_from_text(text, "CustomSwordVFX" if sword else "PaperPlugin")
         return {
             "type": "generate_project",
@@ -59,7 +60,7 @@ def route_message(text: str) -> dict:
             "build": "gradle_kotlin",
             "version": version or "1.21.1",
             "version_explicit": version is not None,
-            "feature": "custom_sword_vfx" if sword else "paper_plugin",
+            "feature": "boss_arena" if boss_arena else "custom_sword_vfx" if sword else "paper_plugin",
             "project_name": project_name,
             "suggested_name": project_name,
             "package_name": _package_name_for(project_name, "paperplugin"),
