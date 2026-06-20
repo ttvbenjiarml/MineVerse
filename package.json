@@ -1,6 +1,6 @@
 {
   "name": "mineforge",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Local AI chatbot and coding agent for Minecraft development.",
   "type": "module",
   "bin": {
