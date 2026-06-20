@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mineforgeai.hardware import detect_hardware, recommended_virtual_context_window
-from mineforgeai.model.checkpointing import find_trained_model_dir, model_artifact_paths
+from mineforgeai.model.checkpointing import find_trained_model_dir, model_artifact_paths, required_model_artifact_paths
 from mineforgeai.model.generation import apply_repetition_penalty, sample_next_token, top_k_top_p_filter
 from mineforgeai.model.transformer import ModelConfig, create_model
 from mineforgeai.tokenizer.tokenizer_io import SimpleBPETokenizer
@@ -95,7 +95,7 @@ def _load_model_config(path: Path) -> ModelConfig:
 
 
 def model_is_usable(model_dir: Path) -> bool:
-    artifacts = model_artifact_paths(model_dir)
+    artifacts = required_model_artifact_paths(model_dir)
     return all(path.exists() for path in artifacts.values())
 
 

@@ -16,7 +16,12 @@ from mineforgeai.hardware import detect_hardware, recommended_virtual_context_wi
 from mineforgeai.minecraft.generators import generate_datapack, generate_fabric_mod, generate_paper_plugin, generate_resource_pack
 from mineforgeai.minecraft.java_runtime import detect_java_installations, installed_java_summary, select_java_compatibility
 from mineforgeai.minecraft.validators import validate_build_gradle_kts, validate_datapack, validate_fabric_mod_json, validate_plugin_yml, validate_resource_pack
-from mineforgeai.model.checkpointing import find_trained_model_dir, model_artifact_paths, trained_model_locations
+from mineforgeai.model.checkpointing import (
+    find_trained_model_dir,
+    model_artifact_paths,
+    required_model_artifact_paths,
+    trained_model_locations,
+)
 from mineforgeai.model.runtime import load_local_model
 from mineforgeai.model.remote_runtime import RemoteModelRuntime
 from mineforgeai.training.trainer import write_training_plan
@@ -599,13 +604,15 @@ class InteractiveApp:
             lines.append(f"Found trained model at: {found}")
             artifacts = model_artifact_paths(found)
             for name, path in artifacts.items():
-                lines.append(f"- {name}: {'exists' if path.exists() else 'MISSING'} ({path})")
+                optional = " (optional)" if name == "state" else ""
+                missing = "missing" if name == "state" else "MISSING"
+                lines.append(f"- {name}{optional}: {'exists' if path.exists() else missing} ({path})")
         else:
             lines.append("No trained model found in known locations.")
             lines.append("Checked candidate locations:")
             for candidate in candidates:
                 lines.append(f"- {candidate}:")
-                artifacts = model_artifact_paths(candidate)
+                artifacts = required_model_artifact_paths(candidate)
                 for name, path in artifacts.items():
                     lines.append(f"    - {name}: {'exists' if path.exists() else 'missing'} ({path})")
 

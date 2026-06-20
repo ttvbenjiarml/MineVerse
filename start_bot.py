@@ -20,10 +20,12 @@ import urllib.request
 import tempfile
 import zipfile
 import os
+import json
 
 ROOT = Path(__file__).parent
 PY_BACKEND = ROOT / "python-backend"
 VENV_DIR = ROOT / ".venv"
+REQUIRED_MODEL_FILES = ("model.pt", "tokenizer.json", "model_config.json")
 
 
 def run(cmd, **kwargs):
@@ -124,46 +126,75 @@ def _model_artifacts_present() -> bool:
         # import backend helper to find the user models dir and artifact names
         sys.path.insert(0, str(PY_BACKEND))
         from mineforgeai.paths import latest_model_dir
-        from mineforgeai.model.checkpointing import model_artifact_paths
+        from mineforgeai.model.checkpointing import required_model_artifact_paths
 
         latest = latest_model_dir()
-        artifacts = model_artifact_paths(latest)
+        artifacts = required_model_artifact_paths(latest)
         return all(p.exists() for p in artifacts.values())
     except Exception:
         return False
 
 
-def _download_and_extract(url: str, dest: Path) -> bool:
-    """Download `url` to a temporary file and extract into `dest`.
+def _required_model_files_present(directory: Path) -> bool:
+    return all((directory / filename).is_file() and (directory / filename).stat().st_size > 0 for filename in REQUIRED_MODEL_FILES)
 
-    Supports zip archives; if the URL points to a single file it will be saved
-    into `dest` with its basename.
-    """
+
+def _find_model_artifact_dir(source: Path) -> Path | None:
+    if _required_model_files_present(source):
+        return source
+    for current, dirs, _files in os.walk(source):
+        current_path = Path(current)
+        if _required_model_files_present(current_path):
+            return current_path
+        # Model release zips should be shallow. Avoid scanning large unrelated folders forever.
+        rel_parts = current_path.relative_to(source).parts
+        if len(rel_parts) >= 3:
+            dirs[:] = []
+    return None
+
+
+def _copy_model_artifacts(source: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    try:
-        print(f"Downloading model from: {url}")
-        tmp_fd, tmp_path = tempfile.mkstemp(prefix="mineforge_model_")
-        os.close(tmp_fd)
-        urllib.request.urlretrieve(url, tmp_path)
-        # if zip, extract
-        if zipfile.is_zipfile(tmp_path):
-            with zipfile.ZipFile(tmp_path, "r") as z:
-                z.extractall(dest)
-            os.unlink(tmp_path)
-            return True
-        # otherwise move single file into dest
-        basename = os.path.basename(url.split("?", 1)[0]) or "downloaded_model"
-        out_path = dest / basename
-        shutil.move(tmp_path, out_path)
-        return True
-    except Exception as exc:
-        print(f"Model download/extract failed: {exc}")
+    for filename in REQUIRED_MODEL_FILES:
+        shutil.copy2(source / filename, dest / filename)
+    if (source / "state.json").is_file():
+        shutil.copy2(source / "state.json", dest / "state.json")
+    for filename in ("tokenizer.json", "model_config.json"):
+        json.loads((dest / filename).read_text(encoding="utf-8"))
+
+
+def _install_model_source(source: str, dest: Path) -> bool:
+    """Install model artifacts from a URL, local zip, or local folder."""
+    with tempfile.TemporaryDirectory(prefix="mineforge_model_") as tmp_dir_name:
+        tmp_dir = Path(tmp_dir_name)
+        source_path = Path(source).expanduser()
+
         try:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-        except Exception:
-            pass
-        return False
+            if source.startswith(("http://", "https://")):
+                downloaded = tmp_dir / "model-download"
+                print(f"Downloading model from: {source}")
+                urllib.request.urlretrieve(source, downloaded)
+                source_path = downloaded
+
+            if source_path.is_dir():
+                artifact_dir = _find_model_artifact_dir(source_path)
+            elif source_path.is_file() and zipfile.is_zipfile(source_path):
+                extract_dir = tmp_dir / "extract"
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(source_path, "r") as archive:
+                    archive.extractall(extract_dir)
+                artifact_dir = _find_model_artifact_dir(extract_dir)
+            else:
+                raise FileNotFoundError(f"Model source is not a folder or zip archive: {source}")
+
+            if artifact_dir is None:
+                raise FileNotFoundError("Model source does not contain model.pt, tokenizer.json, and model_config.json")
+
+            _copy_model_artifacts(artifact_dir, dest)
+            return True
+        except Exception as exc:
+            print(f"Model install failed: {exc}")
+            return False
 
 
 def download_model_if_configured():
@@ -182,7 +213,7 @@ def download_model_if_configured():
 
         latest = latest_model_dir()
         print(f"Auto-downloading model to: {latest}")
-        ok = _download_and_extract(env_url, latest)
+        ok = _install_model_source(env_url, latest)
         if ok:
             print("Model download/extract completed.")
         else:

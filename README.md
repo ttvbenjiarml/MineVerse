@@ -26,7 +26,28 @@ npm install -g .
 # or when published: npm install -g mineforge
 ```
 
-The package runs a postinstall helper that will create the Python `.venv`, install the Python dependencies, and register the backend. If anything fails the installer prints manual steps.
+The package runs a postinstall helper that creates the Python `.venv`, installs Python dependencies, registers the backend, and can install a local model archive.
+
+Model-backed install from npm:
+
+```bash
+npm install -g mineforge
+```
+
+When `package.json` points at your GitHub repo, the installer looks for this Release asset automatically:
+
+```text
+https://github.com/YOUR_ORG/YOUR_REPO/releases/latest/download/mineforge_model_latest.zip
+```
+
+Custom model URL override:
+
+```powershell
+$env:MINEFORGE_MODEL_URL = "https://github.com/YOUR_ORG/YOUR_REPO/releases/latest/download/mineforge_model_latest.zip"
+npm install -g mineforge
+```
+
+The model ZIP must contain `model.pt`, `tokenizer.json`, and `model_config.json`. It may contain those files at the ZIP root or inside one nested folder. If no model URL is configured, the CLI still installs and uses deterministic Minecraft tools plus any remote model settings you configure later.
 
 The first launch may create a `.venv` and install dependencies; this happens automatically.
 
@@ -86,7 +107,7 @@ If you'd like, I can add a short `CONTRIBUTING.md` and a simple GitHub Actions w
 
 ## Auto-download a pre-trained model
 
-If you'd like MineForgeAI to automatically download a pre-trained model on first run, set the environment variable `MINEFORGE_MODEL_URL` to a URL pointing to a ZIP archive containing the three required files (`model.pt`, `tokenizer.json`, `model_config.json`). The installer (`start_bot.py`) will attempt to download and extract the archive into your local models folder if the artifacts are missing.
+If you'd like MineForgeAI to automatically download a pre-trained model, set `MINEFORGE_MODEL_URL` to a URL or local folder/ZIP path containing the three required files (`model.pt`, `tokenizer.json`, `model_config.json`). The npm postinstall helper and `start_bot.py` both use the local models folder if the artifacts are missing.
 
 Example (PowerShell):
 

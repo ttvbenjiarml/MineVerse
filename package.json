@@ -29,6 +29,9 @@
     "dev": "tsx src-node/cli.ts",
     "postinstall": "node ./scripts/npm-postinstall.js"
   },
+  "config": {
+    "mineforge_model_url": ""
+  },
   "engines": {
     "node": ">=20"
   },

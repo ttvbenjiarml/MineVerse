@@ -22,6 +22,11 @@ def model_artifact_paths(base_dir: Path) -> dict:
     }
 
 
+def required_model_artifact_paths(base_dir: Path) -> dict:
+    artifacts = model_artifact_paths(base_dir)
+    return {name: artifacts[name] for name in ["weights", "tokenizer", "config"]}
+
+
 def trained_model_locations(workspace: Path) -> list[Path]:
     return [
         workspace / ".mineforgeai" / "models" / "latest",
@@ -32,7 +37,7 @@ def trained_model_locations(workspace: Path) -> list[Path]:
 
 def find_trained_model_dir(workspace: Path) -> Path | None:
     for candidate in trained_model_locations(workspace):
-        artifacts = model_artifact_paths(candidate)
+        artifacts = required_model_artifact_paths(candidate)
         if all(path.exists() for path in artifacts.values()):
             return candidate
     return None
