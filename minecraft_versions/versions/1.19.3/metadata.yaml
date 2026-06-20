@@ -1,0 +1,12 @@
+id: 1.19.3
+type: release
+release_time: 2022-12-07T08:17:18+00:00
+update_time: 2026-06-16T06:32:19+00:00
+java_requirement: unknown
+official_mappings: best_effort
+yarn: best_effort
+intermediary: best_effort
+mcp_srg: best_effort
+parchment: best_effort
+datapack_format: unknown
+resource_pack_format: unknown

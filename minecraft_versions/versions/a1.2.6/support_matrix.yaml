@@ -1,5 +1,9 @@
-paper: unsupported
-spigot: unsupported
-bukkit: unsupported
-fabric: unsupported
-forge: unsupported
+paper: best_effort
+spigot: best_effort
+bukkit: best_effort
+purpur: best_effort
+fabric: best_effort
+quilt: best_effort
+forge: best_effort
+neoforge: best_effort
+sponge: best_effort

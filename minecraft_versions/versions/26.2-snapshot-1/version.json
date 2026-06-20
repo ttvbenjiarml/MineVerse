@@ -1,0 +1,9 @@
+{
+  "id": "26.2-snapshot-1",
+  "type": "snapshot",
+  "url": "https://piston-meta.mojang.com/v1/packages/db3946ff00e6c353fe2508ec0b8b61da94360eae/26.2-snapshot-1.json",
+  "time": "2026-06-16T06:41:14+00:00",
+  "releaseTime": "2026-04-07T11:52:43+00:00",
+  "sha1": "db3946ff00e6c353fe2508ec0b8b61da94360eae",
+  "complianceLevel": 1
+}

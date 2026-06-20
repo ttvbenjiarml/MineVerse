@@ -1,0 +1,12 @@
+id: 1.21.6
+type: release
+release_time: 2025-06-17T11:10:28+00:00
+update_time: 2026-06-16T06:36:57+00:00
+java_requirement: unknown
+official_mappings: best_effort
+yarn: best_effort
+intermediary: best_effort
+mcp_srg: best_effort
+parchment: best_effort
+datapack_format: unknown
+resource_pack_format: unknown

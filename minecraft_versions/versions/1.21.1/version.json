@@ -1,6 +1,9 @@
 {
   "id": "1.21.1",
   "type": "release",
-  "time": "2024-08-01T00:00:00Z",
-  "releaseTime": "2024-08-01T00:00:00Z"
+  "url": "https://piston-meta.mojang.com/v1/packages/cca4e6ecc1e16e60aab31cdb484b2eb22cb7a656/1.21.1.json",
+  "time": "2026-06-16T06:30:27+00:00",
+  "releaseTime": "2024-08-08T12:24:45+00:00",
+  "sha1": "cca4e6ecc1e16e60aab31cdb484b2eb22cb7a656",
+  "complianceLevel": 1
 }

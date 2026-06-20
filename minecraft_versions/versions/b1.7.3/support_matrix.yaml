@@ -1,5 +1,9 @@
-paper: unsupported
-spigot: legacy_template_only
-bukkit: legacy_template_only
-fabric: unsupported
-forge: legacy_only
+paper: best_effort
+spigot: best_effort
+bukkit: best_effort
+purpur: best_effort
+fabric: best_effort
+quilt: best_effort
+forge: best_effort
+neoforge: best_effort
+sponge: best_effort

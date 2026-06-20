@@ -1,8 +1,8 @@
 id: 1.20.1
 type: release
-release_time: 2023-06-12T00:00:00Z
-update_time: 2023-06-12T00:00:00Z
-java_requirement: 17
+release_time: 2023-06-12T13:25:51+00:00
+update_time: 2026-06-16T06:42:23+00:00
+java_requirement: unknown
 official_mappings: best_effort
 yarn: best_effort
 intermediary: best_effort

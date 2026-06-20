@@ -1,6 +1,9 @@
 {
   "id": "24w14a",
   "type": "snapshot",
-  "time": "2024-04-03T00:00:00Z",
-  "releaseTime": "2024-04-03T00:00:00Z"
+  "url": "https://piston-meta.mojang.com/v1/packages/249c3606d836c5556221bf1c9e229aef7e3e2a04/24w14a.json",
+  "time": "2026-06-16T06:29:50+00:00",
+  "releaseTime": "2024-04-03T11:49:39+00:00",
+  "sha1": "249c3606d836c5556221bf1c9e229aef7e3e2a04",
+  "complianceLevel": 1
 }

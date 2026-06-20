@@ -13,6 +13,7 @@
     "scripts/npm-postinstall.js",
     "scripts/install.ps1",
     "scripts/install.sh",
+    "minecraft_versions/",
     "python-backend/mineforgeai/**/*.py",
     "python-backend/mineforgeai/**/.gitkeep",
     "python-backend/pyproject.toml",

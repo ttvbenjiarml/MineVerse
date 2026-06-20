@@ -1,12 +1,36 @@
 from __future__ import annotations
 
 import json
+import urllib.request
+import argparse
 from pathlib import Path
 
 
+MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Do not download a fresh Mojang manifest; only materialize folders from the local manifest.",
+    )
+    return parser
+
+
+def download_manifest() -> dict:
+    with urllib.request.urlopen(MANIFEST_URL, timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def main() -> int:
+    args = build_parser().parse_args()
     root = Path(__file__).resolve().parents[1] / "minecraft_versions"
-    manifest = json.loads((root / "manifest_v2.json").read_text(encoding="utf-8"))
+    root.mkdir(parents=True, exist_ok=True)
+    manifest_path = root / "manifest_v2.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if args.offline else download_manifest()
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     versions_root = root / "versions"
     versions_root.mkdir(parents=True, exist_ok=True)
     for entry in manifest.get("versions", []):
