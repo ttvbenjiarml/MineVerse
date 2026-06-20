@@ -15,6 +15,19 @@ python train.py
 
 - If an npm package is installed system-wide, you can also run the `mineforge` command.
 
+### One-command install (npm)
+
+You can install the CLI with a single npm command. From the repository root (or when the package is published to npm):
+
+Local install (global from current folder):
+
+```bash
+npm install -g .
+# or when published: npm install -g mineforge
+```
+
+The package runs a postinstall helper that will create the Python `.venv`, install the Python dependencies, and register the backend. If anything fails the installer prints manual steps.
+
 The first launch may create a `.venv` and install dependencies; this happens automatically.
 ---
 

@@ -2,3 +2,4 @@ PyYAML>=6.0
 numpy
 torch>=2.2; platform_system != 'Emscripten'
 rich>=13.0
+prompt_toolkit>=3.0

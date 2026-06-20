@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { prepareBackendRuntime } from "./bootstrap.js";
@@ -65,7 +66,10 @@ export async function handleInput(input, workspace) {
 export async function main() {
   const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   const workspace = process.cwd();
-  const permissions = await loadWorkspacePermissions(workspace);
+  // If the workspace has no permissions file yet, default to full access
+  const permFile = path.join(workspace, ".mineforgeai", "permissions.json");
+  const permFileExists = fs.existsSync(permFile);
+  const permissions = permFileExists ? await loadWorkspacePermissions(workspace) : { mode: "full_access" };
   const webEnabled = await getWebEnabled(workspace);
   const runtime = await prepareBackendRuntime(repoRoot, workspace);
   const pythonBackendRoot = path.join(repoRoot, "python-backend");
@@ -73,7 +77,7 @@ export async function main() {
   const env = {
     ...process.env,
     MINEFORGE_WORKSPACE: workspace,
-    MINEFORGE_PERMISSION_MODE: permissions.mode,
+    ...(permFileExists ? {} : { MINEFORGE_PERMISSION_MODE: permissions.mode }),
     MINEFORGE_WEB_ENABLED: webEnabled ? "1" : "0",
     PYTHONPATH: pythonPath
   };

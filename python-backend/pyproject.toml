@@ -11,5 +11,8 @@ dependencies = [
   "PyYAML>=6.0"
 ]
 
+[project.scripts]
+mineforge = "mineforgeai.main:main"
+
 [tool.pytest.ini_options]
 testpaths = ["mineforgeai/tests"]

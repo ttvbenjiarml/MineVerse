@@ -16,9 +16,67 @@ from mineforgeai.hardware import detect_hardware, recommended_virtual_context_wi
 from mineforgeai.minecraft.generators import generate_fabric_mod, generate_paper_plugin
 from mineforgeai.minecraft.java_runtime import detect_java_installations, installed_java_summary, select_java_compatibility
 from mineforgeai.minecraft.validators import validate_build_gradle_kts, validate_fabric_mod_json, validate_plugin_yml
-from mineforgeai.model.checkpointing import find_trained_model_dir
+from mineforgeai.model.checkpointing import find_trained_model_dir, model_artifact_paths, trained_model_locations
 from mineforgeai.model.runtime import load_local_model
+from mineforgeai.model.remote_runtime import RemoteModelRuntime
 from mineforgeai.training.trainer import write_training_plan
+
+
+# Lightweight completer that suggests top-level commands and workspace paths.
+class MFCompleter:
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+        self.commands = [
+            "/permisions",
+            "/permissions",
+            "/web on",
+            "/web off",
+            "/model",
+            "/model set",
+            "/model status",
+            "/theme",
+            "/theme set",
+            "/rename",
+            "/help",
+            "exit",
+            "quit",
+            "read",
+            "describe",
+            "find",
+            "generate",
+            "train",
+        ]
+
+    def get_completions(self, document, complete_event):
+        try:
+            from prompt_toolkit.completion import Completion
+        except Exception:
+            return
+        text = (document.text_before_cursor or "").lstrip()
+        # Suggest commands that start with the current buffer
+        for cmd in self.commands:
+            if cmd.startswith(text):
+                yield Completion(cmd, start_position=-len(text))
+
+        # If user is typing an argument (after a space), suggest workspace paths
+        parts = text.split()
+        if parts:
+            last = parts[-1]
+            if len(last) >= 1:
+                try:
+                    # Limit suggestions to first 200 entries to avoid slowdowns
+                    count = 0
+                    for p in sorted(self.workspace.rglob("*")):
+                        if count > 200:
+                            break
+                        if not p.is_file() and not p.is_dir():
+                            continue
+                        rel = p.relative_to(self.workspace).as_posix()
+                        if rel.startswith(last):
+                            count += 1
+                            yield Completion(rel, start_position=-len(last))
+                except Exception:
+                    pass
 
 
 def startup_text(workspace: Path, model_label: str, has_model: bool, permission_label: str = "Ask Before Actions", web_enabled: bool = False) -> str:
@@ -27,6 +85,41 @@ def startup_text(workspace: Path, model_label: str, has_model: bool, permission_
     vm_status = "on" if profile.virtual_memory_enabled else "off"
     mode = model_label if has_model else "fallback tool mode"
     tail = "Local trained model detected and ready." if has_model else "No trained local model was found. I can still help using templates, project analysis, web research if enabled, and deterministic Minecraft tools. I can also train a local model when you ask."
+
+    memory = load_memory(workspace)
+    theme = memory.get("ui_theme", "codex")
+
+    if theme == "codex":
+        lines = [
+            f">_ MineForgeAI (interactive)",
+            "",
+            f"model:     {mode}   /model to change",
+            f"directory: {workspace}",
+        ]
+
+        # compute width and build box using unicode box drawing
+        width = max(len(line) for line in lines)
+        top = "╭" + "─" * (width + 2) + "╮"
+        bottom = "╰" + "─" * (width + 2) + "╯"
+        middle = "\n".join("│ " + line.ljust(width) + " │" for line in lines)
+        tip = "Tip: Use /rename to rename threads for easier resuming."
+
+        body = "\n".join([top, middle, bottom, "", tip, ""])
+        # additional status lines below the box
+        status_lines = [
+            f"Permissions: {permission_label}",
+            f"Web: {'on' if web_enabled else 'off'}",
+            f"Java: {installed_java_summary()}",
+            f"Memory: RAM {profile.available_ram_gb:.2f}/{profile.total_ram_gb:.2f} GB, virtual memory {vm_status}",
+            f"Context: auto-compacting virtual context {virtual_window} tokens",
+            "Commands: /permisions, /web on, /web off",
+            "",
+            "Just tell me what you want to build or fix.",
+            tail,
+        ]
+        return body + "\n".join(status_lines)
+
+    # Classic/plain header
     return "\n".join(
         [
             "MineForgeAI Omniverse",
@@ -61,6 +154,8 @@ class InteractiveApp:
         self.model_dir = find_trained_model_dir(workspace)
         self.local_model = load_local_model(workspace) if has_model else None
         self.context.load_summary(self._load_latest_summary())
+        # prompt_toolkit PromptSession (lazy-created)
+        self._prompt_session = None
 
     def _load_latest_summary(self) -> str:
         conversations_root = self.state_dir / "conversations"
@@ -98,9 +193,23 @@ class InteractiveApp:
         permissions = self.load_permissions()
         if permissions.get("initialized"):
             return None
+        # If a permission mode was provided via environment or the mode is already
+        # non-default, persist it and skip interactive onboarding to behave like
+        # a normal chatbot on first launch.
+        env_mode = os.environ.get("MINEFORGE_PERMISSION_MODE")
+        if env_mode:
+            permissions["mode"] = env_mode
+            permissions["initialized"] = True
+            self.save_permissions(permissions)
+            return None
+        if permissions.get("mode") in {"full_access", "see_edits"}:
+            permissions["initialized"] = True
+            self.save_permissions(permissions)
+            return None
+        # Otherwise, run the onboarding menu and set initialized flag.
         permissions["initialized"] = True
         self.save_permissions(permissions)
-        return "\n".join([PERMISSION_MENU, "", "Default selected for first launch: 2. Ask Before Actions"])
+        return "\n".join([PERMISSION_MENU, "", "Default selected for first launch: 2. Ask Before Actions"]) 
 
     def persist_message(self, role: str, content: str) -> None:
         self.context.add(role, content)
@@ -111,8 +220,11 @@ class InteractiveApp:
             print(COMPACTION_MESSAGE, flush=True)
 
     def _confirm(self, question: str) -> bool:
-        print(question, flush=True)
-        answer = input().strip().lower()
+        # Use prompt toolkit prompt when available for consistent UX
+        try:
+            answer = self._prompt(question + " ").strip().lower()
+        except KeyboardInterrupt:
+            return False
         return answer in {"y", "yes"}
 
     def _write_allowed(self) -> bool:
@@ -132,6 +244,28 @@ class InteractiveApp:
         if permission == "see_edits":
             return False
         return self._confirm(f"I can run `{command}` now. Allow this command? (y/n)")
+
+    def _prompt(self, prompt_text: str) -> str:
+        """Prompt the user for input using prompt_toolkit if available, otherwise fall back to builtin input()."""
+        # Lazy create PromptSession to avoid hard dependency at import time
+        if self._prompt_session is None:
+            try:
+                from prompt_toolkit import PromptSession
+                self._prompt_session = PromptSession(completer=MFCompleter(self.workspace), complete_while_typing=True)
+            except Exception:
+                # mark as False to avoid retrying import repeatedly
+                self._prompt_session = False
+
+        if self._prompt_session:
+            try:
+                return self._prompt_session.prompt(prompt_text)
+            except (KeyboardInterrupt, EOFError):
+                raise
+            except Exception:
+                # fallback to builtin
+                pass
+        # fallback
+        return input(prompt_text)
 
     def _handle_permission_selection(self, raw: str) -> str:
         choice = raw.strip()
@@ -184,7 +318,7 @@ class InteractiveApp:
 
         summary = [f"Created `{project_name}`."]
         summary.append(f"Platform: {route['platform']} requested {route.get('version', 'best-effort')}.")
-        summary.append(f"Resolved target version: {compatibility.resolved_version}.")
+        summary.append(f"Resolved target version: {compatibility.effective_version}.")
         summary.append(f"Java detected: {installed_java_summary(detect_java_installations())}.")
         summary.append(f"Virtual context budget: {self.context.virtual_context_window_tokens} tokens.")
         summary.append(compatibility.message)
@@ -203,6 +337,47 @@ class InteractiveApp:
 
     def respond(self, text: str) -> str:
         trimmed = text.strip()
+        # Load user preferences (model, theme) early so commands can inspect/change them
+        memory_payload = load_memory(self.workspace)
+        model_pref = memory_payload.get("model", os.environ.get("MINEFORGE_DEFAULT_MODEL", "auto"))
+
+        # CLI model/theme commands
+        if trimmed.startswith("/model"):
+            parts = trimmed.split()
+            if len(parts) == 1:
+                return f"Model preference: {model_pref}. Options: auto, local, openai, mock. Set with '/model set <name>'."
+            # accept '/model set <name>' or '/model <name>'
+            if parts[1] in ("set", "use") and len(parts) >= 3:
+                choice = parts[2].lower()
+            else:
+                choice = parts[1].lower()
+            # support diagnostic subcommand
+            if choice in {"status", "diagnose", "info"}:
+                return self._diagnose_local_model()
+            if choice not in {"auto", "local", "openai", "mock"}:
+                return "Unknown model. Options: auto, local, openai, mock."
+            memory_payload["model"] = choice
+            save_memory(self.workspace, memory_payload)
+            hint = "" if choice != "openai" else " (requires OPENAI_API_KEY env var)"
+            return f"Model preference set to: {choice}{hint}"
+
+        if trimmed in {"/model status", "/model diagnose", "/model info"}:
+            return self._diagnose_local_model()
+
+        if trimmed.startswith("/theme"):
+            parts = trimmed.split()
+            current = memory_payload.get("ui_theme", "codex")
+            if len(parts) == 1:
+                return f"UI theme: {current}. Options: codex, classic. Set with '/theme set <name>'."
+            if parts[1] in ("set", "use") and len(parts) >= 3:
+                choice = parts[2].lower()
+            else:
+                choice = parts[1].lower()
+            if choice not in {"codex", "classic"}:
+                return "Unknown theme. Options: codex, classic."
+            memory_payload["ui_theme"] = choice
+            save_memory(self.workspace, memory_payload)
+            return f"UI theme set to: {choice}"
         if self.pending_action and self.pending_action.get("type") == "permission_menu":
             self.pending_action = None
             return self._handle_permission_selection(trimmed)
@@ -217,7 +392,7 @@ class InteractiveApp:
             self.set_web_enabled(False)
             return "Web search disabled. I will only use local files, cached docs, and built-in knowledge."
         if trimmed.startswith("/"):
-            return "Only /permisions and /web on/off are available. Just tell me what you want in normal chat."
+            return "Only /permisions, /web, /model, and /theme are available. Just tell me what you want in normal chat."
         if "search online" in trimmed.lower() and not self.is_web_enabled():
             return "Web search is off. Type /web on to allow online research."
 
@@ -245,17 +420,132 @@ class InteractiveApp:
             return describe_workspace(self.workspace)
         if route["type"] == "search_workspace":
             return search_workspace_text(self.workspace, route["query"])
-        if self.local_model is not None:
-            prompt = self._build_model_prompt(text)
+        # Model selection & generation logic (local preferred unless user set otherwise)
+        prompt = self._build_model_prompt(text)
+
+        def try_local():
+            # Attempt to lazily load the local model if it wasn't available at startup
+            if self.local_model is None:
+                try:
+                    self.local_model = load_local_model(self.workspace)
+                except Exception:
+                    self.local_model = None
+            if self.local_model is None:
+                return ""
             try:
-                generated = self.local_model.generate_text(prompt, profile=self.local_model.preferred_profile)
+                return self.local_model.generate_text(prompt, profile=self.local_model.preferred_profile)
             except Exception:
-                generated = ""
-            if generated.strip():
-                return generated.strip()
+                return ""
+
+        def try_remote():
+            try:
+                remote = RemoteModelRuntime()
+                return remote.generate_text(prompt)
+            except Exception:
+                return ""
+
+        generated = ""
+        if model_pref == "local":
+            generated = try_local()
+            if not generated.strip():
+                return "Local model selected but not available or generation failed.\n" + self._diagnose_local_model()
+        elif model_pref == "openai":
+            generated = try_remote()
+            if not generated.strip():
+                return "Remote model failed — check OPENAI_API_KEY or network connectivity."
+        elif model_pref == "mock":
+            generated = RemoteModelRuntime(api_key=None).generate_text(prompt)
+        else:  # auto
+            generated = try_local()
+            if not generated.strip():
+                generated = try_remote()
+        if generated.strip():
+            return generated.strip()
+        # Fallback: no local model available — provide helpful deterministic responses
+        return self.fallback_chat_response(text)
+
+    def fallback_chat_response(self, text: str) -> str:
+        """Simple deterministic fallback responder when no local model is loaded.
+
+        Tries to inspect workspace files (plugin.yml, README.md, build files) and
+        returns a concise summary. This keeps the CLI conversational when a model
+        isn't present.
+        """
+        lowered = text.lower().strip()
+        # If user asks to read the workspace or ask about a plugin, try to summarize
+        if any(word in lowered for word in ("read", "tell me", "what does", "describe")) and "plugin" in lowered:
+            # Look for plugin.yml
+            candidates = list(self.workspace.rglob("plugin.yml"))
+            if candidates:
+                plugin = candidates[0]
+                try:
+                    content = plugin.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return f"Found {plugin.relative_to(self.workspace)} but could not read it."
+                # crude parsing
+                name = None
+                main = None
+                version = None
+                description = None
+                commands = []
+                in_commands = False
+                for line in content.splitlines():
+                    stripped = line.strip()
+                    if not stripped:
+                        in_commands = False
+                        continue
+                    if stripped.startswith("name:") and not name:
+                        name = stripped.split(":", 1)[1].strip()
+                    if stripped.startswith("main:") and not main:
+                        main = stripped.split(":", 1)[1].strip()
+                    if stripped.startswith("version:") and not version:
+                        version = stripped.split(":", 1)[1].strip()
+                    if stripped.startswith("description:") and not description:
+                        description = stripped.split(":", 1)[1].strip()
+                    if stripped.startswith("commands:"):
+                        in_commands = True
+                        continue
+                    if in_commands and stripped and stripped.endswith(":"):
+                        commands.append(stripped[:-1])
+                lines = [f"I inspected `{plugin.relative_to(self.workspace)}`."]
+                if name:
+                    lines.append(f"- Name: {name}")
+                if main:
+                    lines.append(f"- Main class: {main}")
+                if version:
+                    lines.append(f"- Version: {version}")
+                if description:
+                    lines.append(f"- Description: {description}")
+                if commands:
+                    lines.append(f"- Commands: {', '.join(commands)}")
+                if len(lines) == 1:
+                    lines.append("I could not parse key fields; here's the raw file preview:")
+                    lines.extend(content.splitlines()[:10])
+                return "\n".join(lines)
+
+        # If user asks to read current folder generically, show a workspace preview
+        if any(phrase in lowered for phrase in ("read the current folder", "read current folder", "what is in the folder", "read the folder", "describe workspace", "what does this folder")):
+            return describe_workspace(self.workspace)
+
+        # If they asked to 'read README' or similar, show README head
+        if "readme" in lowered or "readme.md" in lowered:
+            candidates = list(self.workspace.glob("README.md"))
+            if candidates:
+                try:
+                    text = candidates[0].read_text(encoding="utf-8", errors="replace")
+                    preview = "\n".join(text.splitlines()[:12])
+                    return f"I found README.md — first lines:\n\n{preview}"
+                except OSError:
+                    return "Found README.md but could not read it."
+
+        # Generic fallback help when no model present
         return (
-            "I can help with Minecraft plugins, mods, datapacks, resource packs, Gradle fixes, logs, and version compatibility. "
-            "Tell me what you want to build or fix, for example: `make a minecraft plugin for paper 1.21.1 that adds a custom sword with VFX`."
+            f"(Fallback mode) I don't have a local model available. You asked: \"{text.strip()}\"\n"
+            "I can still:\n"
+            "- Inspect the workspace files (try: 'Read the current folder' or 'Read plugin.yml')\n"
+            "- Search for text (try: 'find <term>')\n"
+            "- Generate project scaffolds when you ask (limited helpers)\n"
+            "If you'd like a conversational model, place a trained model in `.mineforgeai/models/latest` or set `MINEFORGE_MODEL_URL` and run `start_bot.py` to download it."
         )
 
     def _build_model_prompt(self, user_text: str) -> str:
@@ -284,6 +574,53 @@ class InteractiveApp:
             f"user: {user_text}\nassistant:"
         )
 
+    def _diagnose_local_model(self) -> str:
+        """Return diagnostic information about candidate trained model locations and PyTorch availability."""
+        lines: list[str] = []
+        workspace = self.workspace
+        candidates = trained_model_locations(workspace)
+        found = find_trained_model_dir(workspace)
+        if found is not None:
+            lines.append(f"Found trained model at: {found}")
+            artifacts = model_artifact_paths(found)
+            for name, path in artifacts.items():
+                lines.append(f"- {name}: {'exists' if path.exists() else 'MISSING'} ({path})")
+        else:
+            lines.append("No trained model found in known locations.")
+            lines.append("Checked candidate locations:")
+            for candidate in candidates:
+                lines.append(f"- {candidate}:")
+                artifacts = model_artifact_paths(candidate)
+                for name, path in artifacts.items():
+                    lines.append(f"    - {name}: {'exists' if path.exists() else 'missing'} ({path})")
+
+        try:
+            import torch
+
+            lines.append(f"PyTorch available: True (version {getattr(torch, '__version__', 'unknown')})")
+        except Exception:
+            lines.append("PyTorch available: False — install torch in the runtime venv to load local models")
+
+        # If a model dir was found, attempt a light-weight check of tokenizer/config readability
+        if found is not None:
+            artifacts = model_artifact_paths(found)
+            tokenizer_path = artifacts.get('tokenizer')
+            config_path = artifacts.get('config')
+            try:
+                if tokenizer_path and tokenizer_path.exists():
+                    tokenizer_text = tokenizer_path.read_text(encoding='utf-8', errors='replace')[:400]
+                    lines.append(f"Tokenizer preview: {tokenizer_path} (first 400 chars):")
+                    lines.append(tokenizer_text)
+                if config_path and config_path.exists():
+                    config_text = config_path.read_text(encoding='utf-8', errors='replace')[:400]
+                    lines.append(f"Model config preview: {config_path} (first 400 chars):")
+                    lines.append(config_text)
+            except Exception as exc:
+                lines.append(f"Could not read tokenizer/config: {exc}")
+
+        lines.append("\nIf files are missing, place weights as 'model.pt', tokenizer as 'tokenizer.json', and config as 'model_config.json' in one of the candidate locations listed above. Then restart the CLI.")
+        return "\n".join(lines)
+
     def run(self) -> int:
         onboarding = self.maybe_onboard_permissions()
         print(startup_text(self.workspace, self.model_label, self.has_model, self.permission_label(), self.is_web_enabled()), flush=True)
@@ -291,7 +628,7 @@ class InteractiveApp:
             print(onboarding, flush=True)
         while True:
             try:
-                raw = input("mineforge > ")
+                raw = self._prompt(" >_ ")
             except EOFError:
                 print("Goodbye.", flush=True)
                 return 0
