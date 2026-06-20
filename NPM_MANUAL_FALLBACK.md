@@ -16,6 +16,19 @@ After installing, run:
 mineforge
 ```
 
+If npm says `No matching version found` for the latest version, wait a minute and refresh npm's cache:
+
+```powershell
+npm cache verify
+npm install -g mineforge@latest
+```
+
+If npm shows an `allow-scripts` warning after install, approve MineForge's install script:
+
+```powershell
+npm approve-scripts mineforge
+```
+
 ## Publish MineForge manually
 
 Run these in this project folder:

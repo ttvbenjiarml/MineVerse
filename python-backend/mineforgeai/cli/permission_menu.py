@@ -24,7 +24,4 @@ Choose how much control the AI has in this folder:
    - AI still blocks dangerous system commands.
    - AI still protects secrets and system folders.
 
-4. Custom
-   - Choose exactly what the AI can do.
-
-Select 1, 2, 3, or 4:"""
+Select 1, 2, or 3:"""

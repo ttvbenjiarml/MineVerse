@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,24 +33,25 @@ class MFCompleter:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.commands = [
-            "/permisions",
-            "/permissions",
-            "/web on",
-            "/web off",
-            "/model",
-            "/model set",
-            "/model status",
-            "/theme",
-            "/theme set",
-            "/rename",
-            "/help",
-            "exit",
-            "quit",
-            "read",
-            "describe",
-            "find",
-            "generate",
-            "train",
+            ("/permisions", "permission selector"),
+            ("/permissions", "permission selector"),
+            ("/web on", "enable web research"),
+            ("/web off", "disable web research"),
+            ("/model", "model options"),
+            ("/model set", "choose model mode"),
+            ("/model status", "diagnose local model"),
+            ("/theme", "show CLI theme"),
+            ("/theme set codex", "Codex-like theme"),
+            ("/theme set classic", "plain theme"),
+            ("/rename", "rename thread"),
+            ("/help", "show help"),
+            ("exit", "close MineForgeAI"),
+            ("quit", "close MineForgeAI"),
+            ("read", "read a workspace file"),
+            ("describe", "describe workspace"),
+            ("find", "search workspace text"),
+            ("generate", "generate Minecraft project"),
+            ("train", "create training plan"),
         ]
 
     def get_completions(self, document, complete_event):
@@ -58,10 +60,10 @@ class MFCompleter:
         except Exception:
             return
         text = (document.text_before_cursor or "").lstrip()
-        # Suggest commands that start with the current buffer
-        for cmd in self.commands:
+        # Suggest slash commands as soon as the user types `/`, like Codex CLI.
+        for cmd, meta in self.commands:
             if cmd.startswith(text):
-                yield Completion(cmd, start_position=-len(text))
+                yield Completion(cmd, start_position=-len(text), display_meta=meta)
 
         # If user is typing an argument (after a space), suggest workspace paths
         parts = text.split()
@@ -195,7 +197,6 @@ class InteractiveApp:
             "see_edits": "See Edits",
             "ask_before_actions": "Ask Before Actions",
             "full_access": "Full Access",
-            "custom": "Custom",
         }.get(mode, "Ask Before Actions")
 
     def is_web_enabled(self) -> bool:
@@ -223,10 +224,10 @@ class InteractiveApp:
             permissions["initialized"] = True
             self.save_permissions(permissions)
             return None
-        # Otherwise, run the onboarding menu and set initialized flag.
+        # Otherwise, run the onboarding selector and set initialized flag.
         permissions["initialized"] = True
         self.save_permissions(permissions)
-        return "\n".join([PERMISSION_MENU, "", "Default selected for first launch: 2. Ask Before Actions"]) 
+        return self._select_permission_mode("Choose how much control MineForgeAI has in this folder.")
 
     def persist_message(self, role: str, content: str) -> None:
         self.context.add(role, content)
@@ -264,11 +265,29 @@ class InteractiveApp:
 
     def _prompt(self, prompt_text: str) -> str:
         """Prompt the user for input using prompt_toolkit if available, otherwise fall back to builtin input()."""
+        if os.environ.get("MINEFORGE_PLAIN_INPUT") == "1":
+            return input(prompt_text)
+
         # Lazy create PromptSession to avoid hard dependency at import time
         if self._prompt_session is None:
             try:
                 from prompt_toolkit import PromptSession
-                self._prompt_session = PromptSession(completer=MFCompleter(self.workspace), complete_while_typing=True)
+                from prompt_toolkit.completion import CompleteStyle
+                from prompt_toolkit.styles import Style
+
+                style = Style.from_dict({
+                    "completion-menu.completion": "bg:#1f2937 #d1d5db",
+                    "completion-menu.completion.current": "bg:#2563eb #ffffff",
+                    "completion-menu.meta.completion": "bg:#111827 #9ca3af",
+                    "completion-menu.meta.completion.current": "bg:#1d4ed8 #ffffff",
+                })
+                self._prompt_session = PromptSession(
+                    completer=MFCompleter(self.workspace),
+                    complete_while_typing=True,
+                    complete_style=CompleteStyle.COLUMN,
+                    reserve_space_for_menu=8,
+                    style=style,
+                )
             except Exception:
                 # mark as False to avoid retrying import repeatedly
                 self._prompt_session = False
@@ -284,6 +303,44 @@ class InteractiveApp:
         # fallback
         return input(prompt_text)
 
+    def _select_permission_mode(self, title: str = "MineForgeAI Permissions") -> str:
+        values = [
+            ("see_edits", "See Edits - inspect and suggest only"),
+            ("ask_before_actions", "Ask Before Actions - ask before edits or commands"),
+            ("full_access", "Full Access - edit files and run normal project commands"),
+        ]
+        try:
+            if os.environ.get("MINEFORGE_PLAIN_INPUT") == "1" or not sys.stdin.isatty():
+                raise RuntimeError("plain permission selector requested")
+            from prompt_toolkit.shortcuts import radiolist_dialog
+            from prompt_toolkit.styles import Style
+
+            style = Style.from_dict({
+                "dialog": "bg:#111827",
+                "dialog frame.label": "bg:#111827 #ffffff",
+                "dialog.body": "bg:#111827 #d1d5db",
+                "radio-selected": "#22c55e",
+                "radio": "#9ca3af",
+                "button": "bg:#1f2937 #d1d5db",
+                "button.focused": "bg:#2563eb #ffffff",
+            })
+            selected = radiolist_dialog(
+                title=title,
+                text="Use arrow keys, then Enter.",
+                values=values,
+                default="ask_before_actions",
+                style=style,
+            ).run()
+            if selected is None:
+                selected = "ask_before_actions"
+        except Exception:
+            print(PERMISSION_MENU, flush=True)
+            selected = self._prompt("Select 1, 2, or 3: ").strip()
+            selected = {"1": "see_edits", "2": "ask_before_actions", "3": "full_access"}.get(selected, "ask_before_actions")
+
+        self.save_permissions({"mode": selected, "initialized": True})
+        return f"Permissions updated: {self.permission_label()}"
+
     def _handle_permission_selection(self, raw: str) -> str:
         choice = raw.strip()
         if choice == "1":
@@ -292,24 +349,8 @@ class InteractiveApp:
             payload = {"mode": "ask_before_actions", "initialized": True}
         elif choice == "3":
             payload = {"mode": "full_access", "initialized": True}
-        elif choice == "4":
-            payload = {
-                "mode": "custom",
-                "initialized": True,
-                "custom": {
-                    "read_files": True,
-                    "write_files": False,
-                    "create_files": False,
-                    "delete_files": "ask",
-                    "run_commands": "ask",
-                    "install_dependencies": "ask",
-                    "use_web": False,
-                    "allow_outside_workspace": False,
-                    "show_diffs_before_edit": True,
-                },
-            }
         else:
-            return "I did not recognize that selection. Choose 1, 2, 3, or 4."
+            return "I did not recognize that selection. Choose 1, 2, or 3."
         self.save_permissions(payload)
         return f"Permissions updated: {self.permission_label()}"
 
@@ -404,13 +445,8 @@ class InteractiveApp:
             memory_payload["ui_theme"] = choice
             save_memory(self.workspace, memory_payload)
             return f"UI theme set to: {choice}"
-        if self.pending_action and self.pending_action.get("type") == "permission_menu":
-            self.pending_action = None
-            return self._handle_permission_selection(trimmed)
-
         if trimmed in {"/permisions", "/permissions"}:
-            self.pending_action = {"type": "permission_menu"}
-            return PERMISSION_MENU
+            return self._select_permission_mode()
         if trimmed == "/web on":
             self.set_web_enabled(True)
             return "Web search enabled. I will use online sources when current docs, versions, or errors need verification."

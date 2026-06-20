@@ -37,7 +37,7 @@ export const DEFAULT_CONFIG = {
   },
   permissions: {
     default_mode: "ask_before_actions",
-    allowed_modes: ["see_edits", "ask_before_actions", "full_access", "custom"],
+    allowed_modes: ["see_edits", "ask_before_actions", "full_access"],
     show_diffs_before_edit: true,
     block_dangerous_commands: true,
     block_workspace_escape: true
