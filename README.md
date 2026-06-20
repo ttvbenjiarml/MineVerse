@@ -29,6 +29,17 @@ npm install -g .
 The package runs a postinstall helper that will create the Python `.venv`, install the Python dependencies, and register the backend. If anything fails the installer prints manual steps.
 
 The first launch may create a `.venv` and install dependencies; this happens automatically.
+
+### CI publishing from GitHub
+
+This repository includes GitHub Actions workflows that can publish the Node package and the Python backend when a release is published or when a semver tag (for example `v1.2.3`) is pushed.
+
+To enable automated publishing, add the following repository secrets (Settings → Secrets and variables → Actions):
+
+- **NPM_TOKEN** — an npm automation token (from your npm account). Required for npm publishing.
+- **PYPI_API_TOKEN** — a PyPI API token (optional). Required only if you want the Python backend published to PyPI.
+
+After adding the secrets, create a GitHub Release (or push a `v*.*.*` tag) and the workflows will publish the packages.
 ---
 
 ## Using the model (no training required)
