@@ -4,11 +4,14 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+.pytest_cache/
+*.egg-info/
 
 # Node
 node_modules/
 dist/
 build/
+*.tgz
 
 # VS Code
 .vscode/
@@ -21,16 +24,12 @@ Thumbs.db
 data/
 
 # Logs
-*.log.venv/
-node_modules/
-dist/
-__pycache__/
-.pytest_cache/
-*.pyc
+*.log
 .mineforgeai/
 .minecraft_index/
 .minecraft_jars/
 python-backend/.venv/
+python-backend/dist/
 python-backend/checkpoints/
 python-backend/models/
 python-backend/data/processed/
