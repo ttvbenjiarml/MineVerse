@@ -10,6 +10,6 @@ Fields:
 - auto_install: if True, the launcher will try to pip/npm install missing deps
 """
 
-training_hours = 4.0
+training_hours = 20.0
 preferred_mode = "balanced"  # choices: 'fast', 'balanced', 'quality'
 auto_install = True

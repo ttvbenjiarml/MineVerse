@@ -83,6 +83,10 @@ class MFCompleter:
                 except Exception:
                     pass
 
+    async def get_completions_async(self, document, complete_event):
+        for completion in self.get_completions(document, complete_event):
+            yield completion
+
 
 def startup_text(workspace: Path, model_label: str, has_model: bool, permission_label: str = "Ask Before Actions", web_enabled: bool = False) -> str:
     profile = detect_hardware()
