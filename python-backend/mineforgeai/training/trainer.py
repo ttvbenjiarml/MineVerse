@@ -43,8 +43,9 @@ def stop_time_from_hours(hours: float):
     return datetime.now(UTC) + timedelta(hours=hours)
 
 
-def write_training_plan(hours: float, workspace: Path | None = None) -> Path:
+def write_training_plan(hours: float, workspace: Path | None = None, resume: bool = True) -> Path:
     plan = plan_training(hours)
+    plan.resume = resume
     base_dir = latest_model_dir()
     base_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -59,6 +60,16 @@ def write_training_plan(hours: float, workspace: Path | None = None) -> Path:
     output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     (base_dir / "model_config.json").write_text(json.dumps({"vocab_size": 256, "dropout": 0.1, **MODEL_PRESETS["tiny"]}, indent=2), encoding="utf-8")
     return output
+
+
+def _remove_existing_training_files(base_dir: Path) -> None:
+    for name in ("checkpoint.pt", "model.pt", "tokenizer.json", "model_config.json", "state.json", "training_plan.json", "PAUSED"):
+        path = base_dir / name
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
 
 
 def _load_model_config(path: Path):
@@ -96,17 +107,19 @@ def _collect_texts(workspace: Path | None, target_domains: tuple[str, ...]) -> l
     return texts
 
 
-def run_training(hours: float, workspace: Path | None = None) -> Path:
-    """Start a resumable training loop for the given number of hours.
+def run_training(hours: float, workspace: Path | None = None, resume: bool = True) -> Path:
+    """Train for the requested number of additional hours.
 
-    This trainer supports checkpointing and graceful pause/resume. It writes
-    checkpoints and a control file under the `latest` model directory so that
-    re-running `train.py` will resume where it left off.
+    By default, training resumes from the latest checkpoint or saved weights and
+    adds another session. Passing ``resume=False`` clears the latest run first.
     """
     plan = plan_training(hours)
+    plan.resume = resume
     # ensure plan and default model config are written
     base_dir = latest_model_dir()
-    plan_path = write_training_plan(hours, workspace)
+    if not resume:
+        _remove_existing_training_files(base_dir)
+    plan_path = write_training_plan(hours, workspace, resume=resume)
 
     # load model config
     config_path = base_dir / "model_config.json"
@@ -155,21 +168,21 @@ def run_training(hours: float, workspace: Path | None = None) -> Path:
     # load checkpoint and previous state if present
     iters = 0
     optimizer = None
-    seconds_trained = 0.0
-    requested_hours_from_state = None
-    if state_path.exists():
+    previous_seconds_trained = 0.0
+    if resume and state_path.exists():
         try:
             prev_state = json.loads(state_path.read_text(encoding="utf-8"))
-            requested_hours_from_state = float(prev_state.get("hours_requested", requested_hours_from_state or hours))
-            seconds_trained = float(prev_state.get("seconds_trained", 0.0))
+            previous_seconds_trained = float(prev_state.get("seconds_trained", 0.0))
         except Exception:
-            seconds_trained = 0.0
+            previous_seconds_trained = 0.0
 
-    if checkpoint_path.exists():
+    loaded_from = "fresh model"
+    if resume and checkpoint_path.exists():
         try:
             ck = torch.load(checkpoint_path, map_location=device)
             model.load_state_dict(ck.get("model_state_dict", ck))
             iters = int(ck.get("iterations", 0))
+            previous_seconds_trained = float(ck.get("seconds_trained", previous_seconds_trained))
             opt_state = ck.get("optimizer_state_dict")
             if opt_state is not None:
                 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
@@ -177,9 +190,19 @@ def run_training(hours: float, workspace: Path | None = None) -> Path:
                     optimizer.load_state_dict(opt_state)
                 except Exception:
                     optimizer = None
+            loaded_from = str(checkpoint_path)
         except Exception:
             # ignore and start fresh
             iters = 0
+    elif resume and artifacts["weights"].exists():
+        try:
+            weights = torch.load(artifacts["weights"], map_location=device)
+            model.load_state_dict(weights)
+            loaded_from = str(artifacts["weights"])
+        except Exception:
+            loaded_from = "fresh model"
+
+    print(f"Training source: {loaded_from}", flush=True)
 
     # move model to device
     if device in {"cuda", "mps"}:
@@ -232,18 +255,38 @@ def run_training(hours: float, workspace: Path | None = None) -> Path:
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     loss_fn = torch.nn.CrossEntropyLoss()
 
-    # compute remaining time: if previous run requested N hours and we have
-    # accumulated seconds_trained, resume the remaining portion automatically
     requested_hours = hours
-    if requested_hours_from_state is not None:
-        requested_hours = requested_hours_from_state
-
-    remaining_seconds = max(0.0, requested_hours * 3600.0 - seconds_trained)
-    stop_at = datetime.now(UTC) + timedelta(seconds=remaining_seconds)
+    requested_seconds = max(0.0, requested_hours * 3600.0)
+    stop_at = datetime.now(UTC) + timedelta(seconds=requested_seconds)
     vocab_size = config.vocab_size
 
     # track active session time so we can accumulate seconds_trained across runs
     session_start = time.monotonic()
+    session_seconds = 0.0
+
+    def save_checkpoint(paused: bool, completed: bool = False) -> None:
+        nonlocal session_start, session_seconds
+        now = time.monotonic()
+        session_seconds += now - session_start
+        session_start = now
+        total_seconds = previous_seconds_trained + session_seconds
+        torch.save({
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict() if optimizer is not None else None,
+            "iterations": iters,
+            "seconds_trained": total_seconds,
+        }, checkpoint_path)
+        state = {
+            "trained_at": _dt.now(UTC).isoformat(),
+            "hours_requested": requested_hours,
+            "session_seconds": session_seconds,
+            "seconds_trained": total_seconds,
+            "iterations": iters,
+            "paused": paused,
+            "completed": completed,
+            "resume": resume,
+        }
+        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     # Training loop with checkpointing and pause flag handling
     try:
@@ -251,26 +294,7 @@ def run_training(hours: float, workspace: Path | None = None) -> Path:
             # if pause flag present, write final checkpoint and exit gracefully
             if pause_flag.exists():
                 print("Pause flag detected. Saving checkpoint and exiting.", flush=True)
-                # update accumulated training time
-                now = time.monotonic()
-                seconds_trained += (now - session_start)
-                session_start = now
-
-                torch.save({
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict() if optimizer is not None else None,
-                    "iterations": iters,
-                    "seconds_trained": seconds_trained,
-                }, checkpoint_path)
-                # write state file
-                state = {
-                    "trained_at": _dt.now(UTC).isoformat(),
-                    "hours_requested": requested_hours,
-                    "iterations": iters,
-                    "seconds_trained": seconds_trained,
-                    "paused": True,
-                }
-                state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+                save_checkpoint(paused=True)
                 print("Checkpoint saved. Exiting.", flush=True)
                 return base_dir
 
@@ -290,26 +314,7 @@ def run_training(hours: float, workspace: Path | None = None) -> Path:
                 # periodic checkpoint every 200 iters
                 if iters % 200 == 0:
                     try:
-                        # update accumulated training time
-                        now = time.monotonic()
-                        seconds_trained += (now - session_start)
-                        session_start = now
-
-                        torch.save({
-                            "model_state_dict": model.state_dict(),
-                            "optimizer_state_dict": optimizer.state_dict(),
-                            "iterations": iters,
-                            "seconds_trained": seconds_trained,
-                        }, checkpoint_path)
-                        # write state metadata
-                        state = {
-                            "trained_at": _dt.now(UTC).isoformat(),
-                            "hours_requested": requested_hours,
-                            "iterations": iters,
-                            "seconds_trained": seconds_trained,
-                            "paused": False,
-                        }
-                        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+                        save_checkpoint(paused=False)
                         print(f"Checkpoint saved at iter={iters}", flush=True)
                     except Exception as exc:
                         print(f"Failed to save checkpoint: {exc}", flush=True)
@@ -321,31 +326,16 @@ def run_training(hours: float, workspace: Path | None = None) -> Path:
 
     # final save on completion
     try:
-        # update accumulated training time
-        now = time.monotonic()
-        seconds_trained += (now - session_start)
-
         torch.save(model.state_dict(), artifacts["weights"])
     except Exception:
         # fallback: save CPU state dict
         torch.save({k: v.cpu() for k, v in model.state_dict().items()}, artifacts["weights"])
 
     tokenizer.save(artifacts["tokenizer"])
-    state = {
-        "trained_at": _dt.now(UTC).isoformat(),
-        "hours_requested": requested_hours,
-        "iterations": iters,
-        "seconds_trained": seconds_trained,
-        "paused": False,
-    }
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-
-    # remove checkpoint if present (finalized)
     try:
-        if checkpoint_path.exists():
-            checkpoint_path.unlink()
-    except Exception:
-        pass
+        save_checkpoint(paused=False, completed=True)
+    except Exception as exc:
+        print(f"Failed to save final checkpoint: {exc}", flush=True)
 
     print(f"Training complete. Artifacts saved to: {base_dir}", flush=True)
     return base_dir

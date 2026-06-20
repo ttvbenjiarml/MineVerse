@@ -27,23 +27,23 @@ def ensure_workspace() -> Path:
     return Path.cwd()
 
 
-def main(hours: float | None = None, workspace: Path | None = None) -> int:
+def main(hours: float | None = None, workspace: Path | None = None, resume: bool = True) -> int:
     workspace = workspace or ensure_workspace()
     use_hours = hours if hours is not None else config.training_hours
-    plan = write_training_plan(use_hours, workspace)
+    plan = write_training_plan(use_hours, workspace, resume=resume)
     print(f"Wrote training plan to: {plan}")
-    print("Starting training loop...")
+    print("Starting training loop..." if resume else "Starting fresh training loop...")
     # If a PAUSED flag exists from a previous run, remove it so the trainer will resume
     try:
         latest = latest_model_dir()
         paused = latest / "PAUSED"
-        if paused.exists():
+        if resume and paused.exists():
             paused.unlink()
             print("Cleared PAUSED flag; resuming from last checkpoint.")
     except Exception:
         pass
     try:
-        model_dir = run_training(use_hours, workspace)
+        model_dir = run_training(use_hours, workspace, resume=resume)
         print(f"Training finished. Artifacts saved to: {model_dir}")
     except Exception as exc:
         print(f"Training failed: {exc}")
@@ -57,6 +57,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch training plan and run training loop")
     parser.add_argument("--hours", type=float, help="Override training hours from config")
     parser.add_argument("--workspace", type=str, help="Workspace path to use")
+    parser.add_argument("--fresh", action="store_true", help="Start from scratch instead of continuing the latest model")
     args = parser.parse_args()
     # Auto-install missing deps and relaunch under created venv to pick them up.
     def _ensure_deps_and_relaunch_if_needed():
@@ -134,4 +135,4 @@ if __name__ == "__main__":
             # fall through to headless mode
 
     ws = Path(args.workspace) if args.workspace else None
-    raise SystemExit(main(args.hours, ws))
+    raise SystemExit(main(args.hours, ws, resume=not args.fresh))
