@@ -15,6 +15,24 @@ class VersionRegistry:
     def version_ids(self) -> list[str]:
         return [entry["id"] for entry in self.load_manifest().get("versions", [])]
 
+    def version_entry(self, version_id: str) -> dict | None:
+        for entry in self.load_manifest().get("versions", []):
+            if entry.get("id") == version_id:
+                return entry
+        return None
+
+    def metadata_for(self, version_id: str) -> dict | None:
+        entry = self.version_entry(version_id)
+        if entry is None:
+            return None
+        return {
+            "id": entry["id"],
+            "type": entry.get("type", "unknown"),
+            "release_time": entry.get("releaseTime", ""),
+            "update_time": entry.get("time", ""),
+            "url": entry.get("url", ""),
+        }
+
     def materialize_version_dirs(self) -> list[Path]:
         manifest = self.load_manifest()
         output = []
@@ -23,7 +41,7 @@ class VersionRegistry:
             version_dir.mkdir(parents=True, exist_ok=True)
             (version_dir / "version.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
             (version_dir / "metadata.yaml").write_text(
-                f"id: {entry['id']}\ntype: {entry.get('type', 'unknown')}\nrelease_time: {entry.get('releaseTime', '')}\n",
+                f"id: {entry['id']}\ntype: {entry.get('type', 'unknown')}\nrelease_time: {entry.get('releaseTime', '')}\nupdate_time: {entry.get('time', '')}\n",
                 encoding="utf-8",
             )
             (version_dir / "support_matrix.yaml").write_text(

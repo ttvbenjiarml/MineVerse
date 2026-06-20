@@ -16,6 +16,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not download a fresh Mojang manifest; only materialize folders from the local manifest.",
     )
+    parser.add_argument(
+        "--materialize",
+        action="store_true",
+        help="Write minecraft_versions/versions/<id>/ metadata folders. By default the compact manifest is updated only.",
+    )
     return parser
 
 
@@ -31,6 +36,9 @@ def main() -> int:
     manifest_path = root / "manifest_v2.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if args.offline else download_manifest()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if not args.materialize:
+        print(f"Updated compact manifest with {len(manifest.get('versions', []))} versions.")
+        return 0
     versions_root = root / "versions"
     versions_root.mkdir(parents=True, exist_ok=True)
     for entry in manifest.get("versions", []):

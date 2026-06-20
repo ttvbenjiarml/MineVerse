@@ -1,15 +1,92 @@
 from __future__ import annotations
 
 import json
+import struct
+import zlib
 from pathlib import Path
 
 from mineforgeai.minecraft.java_runtime import fabric_version_data, installed_java_summary, select_java_compatibility
+
+
+PACK_FORMATS = [
+    ((1, 21, 4), 61),
+    ((1, 21, 2), 57),
+    ((1, 21, 0), 48),
+    ((1, 20, 5), 41),
+    ((1, 20, 3), 26),
+    ((1, 20, 2), 18),
+    ((1, 20, 0), 15),
+    ((1, 19, 4), 12),
+    ((1, 19, 0), 10),
+    ((1, 18, 0), 9),
+    ((1, 17, 0), 8),
+    ((1, 16, 2), 6),
+    ((1, 15, 0), 5),
+    ((1, 13, 0), 4),
+]
 
 
 def _write(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _write_bytes(path: Path, content: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
+
+
+def _png_rgba(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        payload = kind + data
+        return struct.pack(">I", len(data)) + payload + struct.pack(">I", zlib.crc32(payload) & 0xFFFFFFFF)
+
+    r, g, b, a = color
+    raw = b"".join(b"\x00" + bytes([r, g, b, a]) * width for _ in range(height))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+def _pack_format(version: str | None) -> int:
+    current = _version_tuple(version)
+    for minimum, pack_format in PACK_FORMATS:
+        if current >= minimum:
+            return pack_format
+    return 4
+
+
+def _version_tuple(version: str | None) -> tuple[int, int, int]:
+    parts = []
+    for item in (version or "1.21.1").split("."):
+        try:
+            parts.append(int(item))
+        except ValueError:
+            break
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+
+def _datapack_folder_names(version: str | None) -> dict[str, str]:
+    if _version_tuple(version) >= (1, 21, 0):
+        return {"function": "function", "advancement": "advancement", "recipe": "recipe"}
+    return {"function": "functions", "advancement": "advancements", "recipe": "recipes"}
+
+
+def _recipe_result(version: str | None, item_id: str, count: int) -> dict:
+    key = "id" if _version_tuple(version) >= (1, 21, 0) else "item"
+    return {key: item_id, "count": count}
+
+
+def _pack_mcmeta(pack_format: int, description: str) -> str:
+    return json.dumps({"pack": {"pack_format": pack_format, "description": description}}, indent=2) + "\n"
+
+
+def _namespace(project_name: str, request: dict | None) -> str:
+    if request and request.get("namespace"):
+        return str(request["namespace"])
+    return "".join(char.lower() for char in project_name if char.isalnum() or char == "_") or "mineforge"
 
 
 def generate_paper_plugin(workspace: Path, project_name: str, package_name: str, request: dict | None = None) -> list[Path]:
@@ -543,4 +620,111 @@ tasks.withType<JavaCompile>().configureEach {{
             indent=2,
         ) + "\n"
     ))
+    return files
+
+
+def generate_datapack(workspace: Path, project_name: str, request: dict | None = None) -> list[Path]:
+    version = (request or {}).get("version", "1.21.1")
+    namespace = _namespace(project_name, request)
+    root = workspace / project_name
+    data_root = root / "data" / namespace
+    minecraft_root = root / "data" / "minecraft"
+    folders = _datapack_folder_names(version)
+    function_dir = folders["function"]
+    advancement_dir = folders["advancement"]
+    recipe_dir = folders["recipe"]
+    pack_format = _pack_format(version)
+    files = []
+    files.append(_write(root / "pack.mcmeta", _pack_mcmeta(pack_format, f"{project_name} datapack for Minecraft {version}")))
+    files.append(_write(root / "README.md", f"# {project_name}\n\nGenerated datapack for Minecraft {version}.\n\nInstall by copying this folder into a world's `datapacks` directory, then run `/reload`.\n\nFunctions:\n- `{namespace}:load`\n- `{namespace}:tick`\n- `{namespace}:start_trial`\n- `{namespace}:reward`\n"))
+    files.append(_write(
+        minecraft_root / "tags" / "function" / "load.json",
+        json.dumps({"values": [f"{namespace}:load"]}, indent=2) + "\n",
+    ))
+    files.append(_write(
+        minecraft_root / "tags" / "function" / "tick.json",
+        json.dumps({"values": [f"{namespace}:tick"]}, indent=2) + "\n",
+    ))
+    if _version_tuple(version) < (1, 21, 0):
+        (minecraft_root / "tags" / "functions").mkdir(parents=True, exist_ok=True)
+        files.append(_write(minecraft_root / "tags" / "functions" / "load.json", json.dumps({"values": [f"{namespace}:load"]}, indent=2) + "\n"))
+        files.append(_write(minecraft_root / "tags" / "functions" / "tick.json", json.dumps({"values": [f"{namespace}:tick"]}, indent=2) + "\n"))
+    files.append(_write(data_root / function_dir / "load.mcfunction", f"scoreboard objectives add {namespace}_timer dummy\nscoreboard objectives add {namespace}_wins dummy\nsay [{project_name}] datapack loaded\n"))
+    files.append(_write(data_root / function_dir / "tick.mcfunction", f"execute as @a[scores={{{namespace}_timer=1..}}] run scoreboard players remove @s {namespace}_timer 1\nexecute as @a[scores={{{namespace}_timer=0}}] run function {namespace}:reward\n"))
+    files.append(_write(data_root / function_dir / "start_trial.mcfunction", f"scoreboard players set @s {namespace}_timer 200\nplaysound minecraft:block.beacon.activate master @s ~ ~ ~ 1 1\nparticle minecraft:end_rod ~ ~1 ~ 0.5 0.5 0.5 0.02 30 force @a[distance=..32]\ntellraw @s {{\"text\":\"Trial started. Survive the storm for 10 seconds.\",\"color\":\"aqua\"}}\n"))
+    files.append(_write(data_root / function_dir / "reward.mcfunction", f"scoreboard players set @s {namespace}_timer -1\nscoreboard players add @s {namespace}_wins 1\ngive @s minecraft:diamond 3\nexperience add @s 50 points\ntellraw @s {{\"text\":\"Trial complete. Reward granted.\",\"color\":\"gold\"}}\n"))
+    files.append(_write(
+        data_root / advancement_dir / "start_trial.json",
+        json.dumps(
+            {
+                "criteria": {"use_beacon": {"trigger": "minecraft:inventory_changed", "conditions": {"items": [{"items": ["minecraft:beacon"]}]}}},
+                "rewards": {"function": f"{namespace}:start_trial"},
+            },
+            indent=2,
+        ) + "\n",
+    ))
+    files.append(_write(
+        data_root / recipe_dir / "storm_trial_key.json",
+        json.dumps(
+            {
+                "type": "minecraft:crafting_shaped",
+                "pattern": [" E ", "DND", " E "],
+                "key": {
+                    "E": {"item": "minecraft:ender_pearl"},
+                    "D": {"item": "minecraft:diamond"},
+                    "N": {"item": "minecraft:nether_star"},
+                },
+                "result": _recipe_result(version, "minecraft:beacon", 1),
+            },
+            indent=2,
+        ) + "\n",
+    ))
+    return files
+
+
+def generate_resource_pack(workspace: Path, project_name: str, request: dict | None = None) -> list[Path]:
+    version = (request or {}).get("version", "1.21.1")
+    namespace = _namespace(project_name, request)
+    root = workspace / project_name
+    assets = root / "assets" / namespace
+    pack_format = _pack_format(version)
+    files = []
+    files.append(_write(root / "pack.mcmeta", _pack_mcmeta(pack_format, f"{project_name} resource pack for Minecraft {version}")))
+    files.append(_write(root / "README.md", f"# {project_name}\n\nGenerated resource pack for Minecraft {version}.\n\nInstall by copying this folder into `.minecraft/resourcepacks`, then enable it in the client resource pack menu.\n"))
+    files.append(_write(
+        assets / "lang" / "en_us.json",
+        json.dumps(
+            {
+                f"item.{namespace}.storm_blade": "Storm Blade",
+                f"item.{namespace}.storm_crystal": "Storm Crystal",
+            },
+            indent=2,
+        ) + "\n",
+    ))
+    files.append(_write(
+        assets / "models" / "item" / "storm_blade.json",
+        json.dumps(
+            {
+                "parent": "minecraft:item/handheld",
+                "textures": {"layer0": f"{namespace}:item/storm_blade"},
+            },
+            indent=2,
+        ) + "\n",
+    ))
+    files.append(_write(
+        assets / "models" / "item" / "storm_crystal.json",
+        json.dumps(
+            {
+                "parent": "minecraft:item/generated",
+                "textures": {"layer0": f"{namespace}:item/storm_crystal"},
+            },
+            indent=2,
+        ) + "\n",
+    ))
+    files.append(_write(
+        assets / "atlases" / "blocks.json",
+        json.dumps({"sources": [{"type": "directory", "source": "item", "prefix": "item/"}]}, indent=2) + "\n",
+    ))
+    files.append(_write_bytes(assets / "textures" / "item" / "storm_blade.png", _png_rgba(16, 16, (45, 180, 255, 255))))
+    files.append(_write_bytes(assets / "textures" / "item" / "storm_crystal.png", _png_rgba(16, 16, (155, 90, 255, 255))))
     return files

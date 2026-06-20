@@ -13,9 +13,9 @@ from mineforgeai.chat.context_manager import ContextManager
 from mineforgeai.chat.compactor import COMPACTION_MESSAGE
 from mineforgeai.cli.permission_menu import PERMISSION_MENU
 from mineforgeai.hardware import detect_hardware, recommended_virtual_context_window
-from mineforgeai.minecraft.generators import generate_fabric_mod, generate_paper_plugin
+from mineforgeai.minecraft.generators import generate_datapack, generate_fabric_mod, generate_paper_plugin, generate_resource_pack
 from mineforgeai.minecraft.java_runtime import detect_java_installations, installed_java_summary, select_java_compatibility
-from mineforgeai.minecraft.validators import validate_build_gradle_kts, validate_fabric_mod_json, validate_plugin_yml
+from mineforgeai.minecraft.validators import validate_build_gradle_kts, validate_datapack, validate_fabric_mod_json, validate_plugin_yml, validate_resource_pack
 from mineforgeai.model.checkpointing import find_trained_model_dir, model_artifact_paths, trained_model_locations
 from mineforgeai.model.runtime import load_local_model
 from mineforgeai.model.remote_runtime import RemoteModelRuntime
@@ -319,6 +319,14 @@ class InteractiveApp:
             mod_json = self.workspace / project_name / "src" / "main" / "resources" / "fabric.mod.json"
             build_kts = self.workspace / project_name / "build.gradle.kts"
             issues = validate_fabric_mod_json(mod_json) + validate_build_gradle_kts(build_kts)
+        elif route["platform"] == "datapack":
+            compatibility = select_java_compatibility("paper", route.get("version", "1.21.1"))
+            files = generate_datapack(self.workspace, project_name, route)
+            issues = validate_datapack(self.workspace / project_name, route.get("namespace", project_name.lower()), route.get("version"))
+        elif route["platform"] == "resourcepack":
+            compatibility = select_java_compatibility("paper", route.get("version", "1.21.1"))
+            files = generate_resource_pack(self.workspace, project_name, route)
+            issues = validate_resource_pack(self.workspace / project_name, route.get("namespace", project_name.lower()))
         else:
             return "I understand the request, but this platform generator is not implemented yet in the interactive runtime."
 
@@ -333,12 +341,13 @@ class InteractiveApp:
             summary.append("Validator notes:")
             summary.extend(f"- {issue}" for issue in issues)
         else:
-            summary.append("Validators passed for the generated metadata and build file.")
-        build_command = "gradlew.bat build" if os.name == "nt" else "./gradlew build"
-        if self._run_allowed(build_command):
-            summary.append(f"Build command allowed: `{build_command}`")
-        else:
-            summary.append(f"Build not run automatically. Suggested command: `{build_command}`")
+            summary.append("Validators passed for the generated project metadata.")
+        if route["platform"] in {"paper", "fabric"}:
+            build_command = "gradlew.bat build" if os.name == "nt" else "./gradlew build"
+            if self._run_allowed(build_command):
+                summary.append(f"Build command allowed: `{build_command}`")
+            else:
+                summary.append(f"Build not run automatically. Suggested command: `{build_command}`")
         return "\n".join(summary)
 
     def respond(self, text: str) -> str:

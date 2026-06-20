@@ -23,6 +23,11 @@ def _package_name_for(project_name: str, suffix: str) -> str:
     return f"com.mineforgeai.{safe_name or suffix}"
 
 
+def _namespace_for(project_name: str, fallback: str) -> str:
+    safe_name = re.sub(r"[^a-z0-9_]", "", project_name.lower().replace("-", "_"))
+    return safe_name or fallback
+
+
 def route_message(text: str) -> dict:
     normalized = text.lower().strip()
     if normalized.startswith("/"):
@@ -49,6 +54,30 @@ def route_message(text: str) -> dict:
     if normalized.startswith("find ") or normalized.startswith("search this project for "):
         query = normalized.split("for ", 1)[-1] if " for " in normalized else normalized.replace("find ", "", 1)
         return {"type": "search_workspace", "query": query.strip()}
+    if "datapack" in normalized or "data pack" in normalized:
+        project_name = _project_name_from_text(text, "MineForgeDatapack")
+        return {
+            "type": "generate_project",
+            "platform": "datapack",
+            "version": version or "1.21.1",
+            "version_explicit": version is not None,
+            "feature": "loot_challenge" if any(word in normalized for word in ["loot", "challenge", "advancement", "function"]) else "datapack",
+            "project_name": project_name,
+            "suggested_name": project_name,
+            "namespace": _namespace_for(project_name, "mineforge_datapack"),
+        }
+    if "resource pack" in normalized or "resourcepack" in normalized or "texture pack" in normalized:
+        project_name = _project_name_from_text(text, "MineForgeResourcePack")
+        return {
+            "type": "generate_project",
+            "platform": "resourcepack",
+            "version": version or "1.21.1",
+            "version_explicit": version is not None,
+            "feature": "custom_item_texture" if any(word in normalized for word in ["item", "sword", "texture", "model"]) else "resourcepack",
+            "project_name": project_name,
+            "suggested_name": project_name,
+            "namespace": _namespace_for(project_name, "mineforge_resourcepack"),
+        }
     if "paper" in normalized and "plugin" in normalized:
         sword = "sword" in normalized
         boss_arena = "boss" in normalized or "arena" in normalized
