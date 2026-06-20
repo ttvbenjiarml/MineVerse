@@ -35,3 +35,6 @@ python-backend/models/
 python-backend/data/processed/
 python-backend/data/tokenizer/
 logs/
+
+# Local release helpers
+publish_npm_local.bat
