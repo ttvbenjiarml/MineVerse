@@ -5,6 +5,24 @@ import re
 from mineforgeai.chat.clarification import clarification_question
 
 
+def _project_name_from_text(text: str, fallback: str) -> str:
+    quoted = re.search(r"\b(?:called|named)\s+[\"']([^\"']+)[\"']", text, re.IGNORECASE)
+    bare = re.search(r"\b(?:called|named)\s+([A-Za-z][A-Za-z0-9_-]*)", text, re.IGNORECASE)
+    raw = (quoted.group(1) if quoted else bare.group(1) if bare else fallback).strip()
+    parts = re.findall(r"[A-Za-z0-9]+", raw)
+    if not parts:
+        return fallback
+    candidate = "".join(part[:1].upper() + part[1:] for part in parts)
+    if not candidate[0].isalpha():
+        candidate = fallback
+    return candidate
+
+
+def _package_name_for(project_name: str, suffix: str) -> str:
+    safe_name = re.sub(r"[^a-z0-9]", "", project_name.lower())
+    return f"com.mineforgeai.{safe_name or suffix}"
+
+
 def route_message(text: str) -> dict:
     normalized = text.lower().strip()
     if normalized.startswith("/"):
@@ -33,6 +51,7 @@ def route_message(text: str) -> dict:
         return {"type": "search_workspace", "query": query.strip()}
     if "paper" in normalized and "plugin" in normalized:
         sword = "sword" in normalized
+        project_name = _project_name_from_text(text, "CustomSwordVFX" if sword else "PaperPlugin")
         return {
             "type": "generate_project",
             "platform": "paper",
@@ -41,12 +60,13 @@ def route_message(text: str) -> dict:
             "version": version or "1.21.1",
             "version_explicit": version is not None,
             "feature": "custom_sword_vfx" if sword else "paper_plugin",
-            "project_name": "CustomSwordVFX" if sword else "PaperPlugin",
-            "suggested_name": "CustomSwordVFX" if sword else "PaperPlugin",
-            "package_name": "com.mineforgeai.customsword",
+            "project_name": project_name,
+            "suggested_name": project_name,
+            "package_name": _package_name_for(project_name, "paperplugin"),
         }
     if "fabric" in normalized and "mod" in normalized:
         ore = "ore" in normalized or "armor" in normalized
+        project_name = _project_name_from_text(text, "CopperArmorSet" if ore else "FabricMod")
         return {
             "type": "generate_project",
             "platform": "fabric",
@@ -55,9 +75,9 @@ def route_message(text: str) -> dict:
             "version": version or "1.20.1",
             "version_explicit": version is not None,
             "feature": "ore_armor" if ore else "fabric_mod",
-            "project_name": "CopperArmorSet" if ore else "FabricMod",
-            "suggested_name": "CopperArmorSet" if ore else "FabricMod",
-            "package_name": "com.mineforgeai.fabricmod",
+            "project_name": project_name,
+            "suggested_name": project_name,
+            "package_name": _package_name_for(project_name, "fabricmod"),
         }
     if "train the local model" in normalized:
         return {"type": "train_model", "hours": hours}

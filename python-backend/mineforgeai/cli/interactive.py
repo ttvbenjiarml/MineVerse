@@ -152,7 +152,13 @@ class InteractiveApp:
         self.pending_action: dict | None = None
         self.conversation_dir = self.state_dir / "conversations" / datetime.now(UTC).strftime("%Y-%m-%d")
         self.model_dir = find_trained_model_dir(workspace)
-        self.local_model = load_local_model(workspace) if has_model else None
+        self.local_model = None
+        if has_model:
+            try:
+                self.local_model = load_local_model(workspace)
+            except Exception as exc:
+                self.has_model = False
+                self.model_label = f"fallback tool mode (local model failed to load: {exc})"
         self.context.load_summary(self._load_latest_summary())
         # prompt_toolkit PromptSession (lazy-created)
         self._prompt_session = None
