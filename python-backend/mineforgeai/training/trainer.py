@@ -156,6 +156,23 @@ def run_training(hours: float, workspace: Path | None = None, resume: bool = Tru
     profile = detect_hardware()
     device = profile.device if profile.device in {"cuda", "mps"} else "cpu"
 
+    checkpoint_path = base_dir / "checkpoint.pt"
+    if resume and checkpoint_path.exists():
+        try:
+            ck = torch.load(checkpoint_path, map_location="cpu")
+            state_dict = ck.get("model_state_dict", ck)
+            if "token_embedding.weight" in state_dict:
+                config.vocab_size = state_dict["token_embedding.weight"].shape[0]
+        except Exception:
+            pass
+    elif resume and (base_dir / "model.pt").exists():
+        try:
+            weights = torch.load(base_dir / "model.pt", map_location="cpu")
+            if "token_embedding.weight" in weights:
+                config.vocab_size = weights["token_embedding.weight"].shape[0]
+        except Exception:
+            pass
+
     model = create_model(config)
 
     # checkpoint/state helpers

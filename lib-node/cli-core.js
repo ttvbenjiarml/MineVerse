@@ -6,7 +6,7 @@ import { prepareBackendRuntime } from "./bootstrap.js";
 import { loadWorkspacePermissions, PERMISSION_MENU } from "./permissions.js";
 import { getWebEnabled, setWebEnabled, webDisabledMessage, webEnabledMessage, webOffMessage } from "./web.js";
 
-const INVALID_SLASH_MESSAGE = "Only /permisions and /web on/off are available. Just tell me what you want in normal chat.";
+const INVALID_SLASH_MESSAGE = "Unknown command. Type /help to see available commands.";
 
 export function getStartupBanner({ workspace, permissionsLabel, webEnabled, hasModel }) {
   return [
@@ -17,7 +17,7 @@ export function getStartupBanner({ workspace, permissionsLabel, webEnabled, hasM
     `Permissions: ${permissionsLabel}`,
     `Web: ${webEnabled ? "on" : "off"}`,
     "Context: auto-compacting",
-    "Commands: /permisions, /web on, /web off",
+    "Commands: /permissions, /web on, /web off, /model status, /theme, /rename, /clear, /help",
     "Update CLI: npm install -g mineforge@latest",
     "",
     "Just tell me what you want to build or fix.",
@@ -38,6 +38,21 @@ export function parseSlashCommand(input) {
   }
   if (trimmed === "/web off") {
     return { type: "web_off" };
+  }
+  if (trimmed === "/help") {
+    return { type: "help" };
+  }
+  if (trimmed === "/clear") {
+    return { type: "clear" };
+  }
+  if (trimmed.startsWith("/rename")) {
+    return { type: "rename", text: trimmed.slice("/rename".length).trim() };
+  }
+  if (trimmed === "/model" || trimmed.startsWith("/model ")) {
+    return { type: "model" };
+  }
+  if (trimmed.startsWith("/theme")) {
+    return { type: "theme" };
   }
   return { type: "invalid", text: INVALID_SLASH_MESSAGE };
 }

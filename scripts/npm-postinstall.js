@@ -145,6 +145,32 @@ async function installModelIfConfigured(venvPython) {
     return;
   }
 
+  // Auto-install from local workspace candidates if present
+  const repoRoot = packageRoot();
+  const workspaceCandidates = [
+    path.join(repoRoot, ".mineforgeai", "models", "latest"),
+    path.join(repoRoot, "models", "latest"),
+    path.join(repoRoot, "python-backend", "models", "latest")
+  ];
+  for (const cand of workspaceCandidates) {
+    if (requiredModelFilesPresent(cand)) {
+      console.log(`MineForgeAI: found local trained model in workspace: ${cand}`);
+      try {
+        fs.mkdirSync(destination, { recursive: true });
+        for (const file of REQUIRED_MODEL_FILES) {
+          fs.copyFileSync(path.join(cand, file), path.join(destination, file));
+        }
+        if (fs.existsSync(path.join(cand, "state.json"))) {
+          fs.copyFileSync(path.join(cand, "state.json"), path.join(destination, "state.json"));
+        }
+        console.log(`MineForgeAI: successfully installed local model to ${destination}`);
+        return;
+      } catch (err) {
+        console.error(`MineForgeAI: failed to copy local model from ${cand}: ${err}`);
+      }
+    }
+  }
+
   const source = modelSource();
   if (!source) {
     console.log("MineForgeAI: no model URL configured; CLI will use deterministic tools and remote/local settings.");
@@ -191,6 +217,35 @@ async function installModelIfConfigured(venvPython) {
 async function main() {
   try {
     const repoRoot = packageRoot();
+
+    // Auto-install from local workspace candidates if present in AppData
+    const destination = modelRoot();
+    if (!requiredModelFilesPresent(destination)) {
+      const workspaceCandidates = [
+        path.join(repoRoot, ".mineforgeai", "models", "latest"),
+        path.join(repoRoot, "models", "latest"),
+        path.join(repoRoot, "python-backend", "models", "latest")
+      ];
+      for (const cand of workspaceCandidates) {
+        if (requiredModelFilesPresent(cand)) {
+          console.log(`MineForgeAI: found local trained model in workspace: ${cand}`);
+          try {
+            fs.mkdirSync(destination, { recursive: true });
+            for (const file of REQUIRED_MODEL_FILES) {
+              fs.copyFileSync(path.join(cand, file), path.join(destination, file));
+            }
+            if (fs.existsSync(path.join(cand, "state.json"))) {
+              fs.copyFileSync(path.join(cand, "state.json"), path.join(destination, "state.json"));
+            }
+            console.log(`MineForgeAI: successfully installed local model to ${destination}`);
+            break;
+          } catch (err) {
+            console.error(`MineForgeAI: failed to copy local model from ${cand}: ${err}`);
+          }
+        }
+      }
+    }
+
     const pyRoot = path.join(repoRoot, "python-backend");
     if (!fs.existsSync(pyRoot)) {
       console.log("No python-backend folder found, skipping Python venv setup.");

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -43,6 +45,7 @@ class MFCompleter:
             ("/theme set codex", "Codex-like theme"),
             ("/theme set classic", "plain theme"),
             ("/rename", "rename thread"),
+            ("/clear", "clear conversation context"),
             ("/help", "show help"),
             ("exit", "close MineForgeAI"),
             ("quit", "close MineForgeAI"),
@@ -100,33 +103,49 @@ def startup_text(workspace: Path, model_label: str, has_model: bool, permission_
     theme = memory.get("ui_theme", "codex")
 
     if theme == "codex":
-        lines = [
-            f">_ MineForgeAI (interactive)",
-            "",
-            f"model:     {mode}   /model status",
-            f"directory: {workspace}",
-        ]
+        cyan = "\033[1;36m"
+        green = "\033[1;32m"
+        gray = "\033[90m"
+        white = "\033[1;37m"
+        reset = "\033[0m"
+        blue = "\033[1;34m"
 
-        # compute width and build box using unicode box drawing
-        width = max(len(line) for line in lines)
-        top = "╭" + "─" * (width + 2) + "╮"
-        bottom = "╰" + "─" * (width + 2) + "╯"
-        middle = "\n".join("│ " + line.ljust(width) + " │" for line in lines)
-        tip = "Tip: Use /rename to rename threads for easier resuming."
+        title_line = f"{green}>_ MineForgeAI (interactive){reset}"
+        model_line = f"{cyan}model:{reset}     {mode}   {gray}/model status{reset}"
+        dir_line = f"{cyan}directory:{reset} {workspace}"
 
+        def clean_len(s):
+            import re
+            return len(re.sub(r'\033\[[0-9;]*m', '', s))
+
+        width = max(clean_len(line) for line in [title_line, "", model_line, dir_line])
+        top = f"{blue}╭" + "─" * (width + 2) + f"╮{reset}"
+        bottom = f"{blue}╰" + "─" * (width + 2) + f"╯{reset}"
+
+        def fmt_line(label_clean, label_styled):
+            extra_spaces = width - clean_len(label_clean)
+            return f"{blue}│{reset} {label_styled}" + " " * extra_spaces + f" {blue}│{reset}"
+
+        m1 = fmt_line(">_ MineForgeAI (interactive)", title_line)
+        m2 = fmt_line("", "")
+        m3 = fmt_line(f"model:     {mode}   /model status", model_line)
+        m4 = fmt_line(f"directory: {workspace}", dir_line)
+
+        middle = "\n".join([m1, m2, m3, m4])
+        tip = f"{gray}Tip: Use /rename to rename threads for easier resuming.{reset}"
         body = "\n".join([top, middle, bottom, "", tip, ""])
-        # additional status lines below the box
+
         status_lines = [
-            f"Permissions: {permission_label}",
-            f"Web: {'on' if web_enabled else 'off'}",
-            f"Java: {installed_java_summary()}",
-            f"Memory: RAM {profile.available_ram_gb:.2f}/{profile.total_ram_gb:.2f} GB, virtual memory {vm_status}",
-            f"Context: auto-compacting virtual context {virtual_window} tokens",
-            "Commands: /permisions, /web on, /web off",
-            "Update CLI: npm install -g mineforge@latest",
+            f"{white}Permissions:{reset} {permission_label}",
+            f"{white}Web:{reset} {'on' if web_enabled else 'off'}",
+            f"{white}Java:{reset} {installed_java_summary()}",
+            f"{white}Memory:{reset} RAM {profile.available_ram_gb:.2f}/{profile.total_ram_gb:.2f} GB, virtual memory {vm_status}",
+            f"{white}Context:{reset} auto-compacting virtual context {virtual_window} tokens",
+            f"{gray}Commands: /permisions, /web on, /web off{reset}",
+            f"{gray}Update CLI: npm install -g mineforge@latest{reset}",
             "",
-            "Just tell me what you want to build or fix.",
-            tail,
+            f"{green}Just tell me what you want to build or fix.{reset}",
+            f"{white}{tail}{reset}",
         ]
         return body + "\n".join(status_lines)
 
@@ -264,8 +283,29 @@ class InteractiveApp:
 
     def _prompt(self, prompt_text: str) -> str:
         """Prompt the user for input using prompt_toolkit if available, otherwise fall back to builtin input()."""
+        is_main_prompt = prompt_text == " >_ "
+        if is_main_prompt:
+            ws_name = self.workspace.name
+            branch = ""
+            try:
+                git_head = self.workspace / ".git" / "HEAD"
+                if git_head.exists():
+                    head_content = git_head.read_text(encoding="utf-8").strip()
+                    if head_content.startswith("ref:"):
+                        if head_content.startswith("ref: refs/heads/"):
+                            branch = " (" + head_content[len("ref: refs/heads/"):] + ")"
+                        else:
+                            branch = " (" + head_content.split("/")[-1] + ")"
+            except Exception:
+                pass
+            prompt_html = f'<style fg="ansiwhite" bold="true">mineforge</style> <style fg="ansigray">[{ws_name}{branch}]</style> <style fg="ansigreen" bold="true">></style> '
+            prompt_plain = f"\033[1;37mmineforge\033[0m \033[90m[{ws_name}{branch}]\033[0m \033[1;32m>\033[0m "
+        else:
+            prompt_html = prompt_text
+            prompt_plain = prompt_text
+
         if os.environ.get("MINEFORGE_PLAIN_INPUT") == "1":
-            return input(prompt_text)
+            return input(prompt_plain)
 
         # Lazy create PromptSession to avoid hard dependency at import time
         if self._prompt_session is None:
@@ -306,14 +346,18 @@ class InteractiveApp:
 
         if self._prompt_session:
             try:
-                return self._prompt_session.prompt(prompt_text)
+                if is_main_prompt:
+                    from prompt_toolkit import HTML
+                    return self._prompt_session.prompt(HTML(prompt_html))
+                else:
+                    return self._prompt_session.prompt(prompt_html)
             except (KeyboardInterrupt, EOFError):
                 raise
             except Exception:
                 # fallback to builtin
                 pass
         # fallback
-        return input(prompt_text)
+        return input(prompt_plain)
 
     def _select_permission_mode(self, title: str = "MineForgeAI Permissions") -> str:
         values = [
@@ -450,8 +494,18 @@ class InteractiveApp:
         if trimmed == "/web off":
             self.set_web_enabled(False)
             return "Web search disabled. I will only use local files, cached docs, and built-in knowledge."
+        if trimmed == "/help":
+            return self._help_text()
+        if trimmed.startswith("/rename"):
+            parts = trimmed.split(maxsplit=1)
+            new_name = parts[1].strip() if len(parts) > 1 else ""
+            return self._rename_thread(new_name)
+        if trimmed == "/clear":
+            self.context.messages.clear()
+            self.context.prior_summary = ""
+            return "Context cleared. Starting fresh — previous messages have been removed from working memory."
         if trimmed.startswith("/"):
-            return "Only /permisions, /web, /model, and /theme are available. Just tell me what you want in normal chat."
+            return "Unknown command. Type `/help` to see available commands."
         if "search online" in trimmed.lower() and not self.is_web_enabled():
             return "Web search is off. Type /web on to allow online research."
 
@@ -496,6 +550,25 @@ class InteractiveApp:
             except Exception:
                 return ""
 
+        def try_local_streaming():
+            """Attempt streaming generation from the local model."""
+            if self.local_model is None:
+                try:
+                    self.local_model = load_local_model(self.workspace)
+                except Exception:
+                    self.local_model = None
+            if self.local_model is None:
+                return None
+            try:
+                return self.local_model.generate_text_streaming(prompt, profile=self.local_model.preferred_profile)
+            except Exception:
+                return None
+
+        # Prefer streaming; fall back to batch; fall back to deterministic
+        stream = try_local_streaming()
+        if stream is not None:
+            # Signal to run() that this is a streaming response
+            return ("__STREAM__", stream)
         generated = try_local()
         if generated.strip():
             return generated.strip()
@@ -661,6 +734,66 @@ class InteractiveApp:
         lines.append("\nIf files are missing, place weights as 'model.pt', tokenizer as 'tokenizer.json', and config as 'model_config.json' in one of the candidate locations listed above. Then restart the CLI.")
         return "\n".join(lines)
 
+    def _help_text(self) -> str:
+        """Return a comprehensive help message listing all available commands."""
+        memory = load_memory(self.workspace)
+        theme = memory.get("ui_theme", "codex")
+        if theme == "codex":
+            cyan = "\033[1;36m"
+            green = "\033[1;32m"
+            gray = "\033[90m"
+            white = "\033[1;37m"
+            reset = "\033[0m"
+        else:
+            cyan = green = gray = white = reset = ""
+
+        return "\n".join([
+            f"{green}MineForgeAI — Available Commands{reset}",
+            "",
+            f"  {cyan}/permissions{reset}  {gray}Change workspace permissions (see edits / ask / full access){reset}",
+            f"  {cyan}/web on{reset}       {gray}Enable web research for answers{reset}",
+            f"  {cyan}/web off{reset}      {gray}Disable web research{reset}",
+            f"  {cyan}/model status{reset} {gray}Diagnose local model, show PyTorch and checkpoint info{reset}",
+            f"  {cyan}/theme set X{reset}  {gray}Set UI theme (codex, classic){reset}",
+            f"  {cyan}/rename X{reset}     {gray}Rename the current conversation thread{reset}",
+            f"  {cyan}/clear{reset}        {gray}Clear conversation context and start fresh{reset}",
+            f"  {cyan}/help{reset}         {gray}Show this help message{reset}",
+            "",
+            f"{green}Natural Language{reset}",
+            f"  {white}Just type what you want.{reset} MineForgeAI routes your request to the",
+            f"  appropriate tool: project generation, crash analysis, workspace search,",
+            f"  training, or freeform AI chat.",
+            "",
+            f"{green}Examples{reset}",
+            f"  {gray}make a paper plugin that adds custom enchantments{reset}",
+            f"  {gray}find CommandExecutor in this project{reset}",
+            f"  {gray}read the current folder{reset}",
+            f"  {gray}train the local model for 4 hours{reset}",
+            "",
+            f"  Type {cyan}exit{reset} or {cyan}quit{reset} to close.",
+        ])
+
+    def _rename_thread(self, new_name: str) -> str:
+        """Rename the current conversation thread directory."""
+        if not new_name:
+            return "Usage: `/rename My Thread Name`"
+        # Sanitize the name for filesystem safety
+        import re
+        safe_name = re.sub(r'[<>:"/\\|?*]', '_', new_name).strip()[:80]
+        if not safe_name:
+            return "Invalid name. Use alphanumeric characters and spaces."
+        old_dir = self.conversation_dir
+        new_dir = old_dir.parent / safe_name
+        if new_dir.exists():
+            return f"A thread named `{safe_name}` already exists. Pick a different name."
+        try:
+            old_dir.mkdir(parents=True, exist_ok=True)
+            old_dir.rename(new_dir)
+            self.conversation_dir = new_dir
+            return f"Thread renamed to: `{safe_name}`"
+        except Exception as exc:
+            return f"Failed to rename thread: {exc}"
+
     def run(self) -> int:
         onboarding = self.maybe_onboard_permissions()
         print(startup_text(self.workspace, self.model_label, self.has_model, self.permission_label(), self.is_web_enabled()), flush=True)
@@ -676,6 +809,77 @@ class InteractiveApp:
                 print("Goodbye.", flush=True)
                 return 0
             self.persist_message("user", raw)
-            response = self.respond(raw)
-            self.persist_message("assistant", response)
-            print(response, flush=True)
+
+            # Show a thinking spinner while generating the response
+            spinner_active = threading.Event()
+            spinner_active.set()
+
+            def spinner():
+                frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+                idx = 0
+                while spinner_active.is_set():
+                    sys.stdout.write(f"\r\033[90m{frames[idx % len(frames)]} Thinking...\033[0m")
+                    sys.stdout.flush()
+                    idx += 1
+                    time.sleep(0.08)
+                sys.stdout.write("\r" + " " * 30 + "\r")
+                sys.stdout.flush()
+
+            spin_thread = threading.Thread(target=spinner, daemon=True)
+            spin_thread.start()
+
+            try:
+                response = self.respond(raw)
+            finally:
+                spinner_active.clear()
+                spin_thread.join(timeout=1.0)
+
+            # Handle streaming response (tuple marker from respond)
+            if isinstance(response, tuple) and len(response) == 2 and response[0] == "__STREAM__":
+                stream = response[1]
+                collected_chunks = []
+                try:
+                    use_rich = False
+                    try:
+                        from rich.console import Console
+                        console = Console()
+                        use_rich = True
+                    except Exception:
+                        pass
+
+                    # Stream token by token to stdout
+                    sys.stdout.write("\n")
+                    for chunk in stream:
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+                        collected_chunks.append(chunk)
+                    sys.stdout.write("\n\n")
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+                full_response = "".join(collected_chunks).strip()
+                if full_response:
+                    self.persist_message("assistant", full_response)
+                else:
+                    fallback = self.fallback_chat_response(raw)
+                    self.persist_message("assistant", fallback)
+                    try:
+                        from rich.console import Console
+                        from rich.markdown import Markdown
+                        console = Console()
+                        console.print()
+                        console.print(Markdown(fallback))
+                        console.print()
+                    except Exception:
+                        print(fallback, flush=True)
+            else:
+                self.persist_message("assistant", response)
+                try:
+                    from rich.console import Console
+                    from rich.markdown import Markdown
+                    console = Console()
+                    console.print()
+                    console.print(Markdown(response))
+                    console.print()
+                except Exception:
+                    print(response, flush=True)
