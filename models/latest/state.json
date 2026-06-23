@@ -1,0 +1,10 @@
+{
+  "trained_at": "2026-06-22T16:19:54.754945+00:00",
+  "hours_requested": 120.0,
+  "session_seconds": 29101.531000000003,
+  "seconds_trained": 91515.5,
+  "iterations": 63800,
+  "paused": false,
+  "completed": false,
+  "resume": true
+}

@@ -1,0 +1,26 @@
+{
+  "hours": 120.0,
+  "resume": true,
+  "target_domains": [
+    "paper_plugins",
+    "spigot_plugins",
+    "bukkit_plugins",
+    "fabric_mods",
+    "forge_mods",
+    "neoforge_mods",
+    "quilt_mods",
+    "velocity_plugins",
+    "bungee_plugins",
+    "sponge_plugins",
+    "datapacks",
+    "resourcepacks",
+    "gradle_projects",
+    "crash_logs",
+    "mappings",
+    "generated_minecraft_summaries",
+    "user_projects"
+  ],
+  "user_data_dir": "C:\\Users\\benji\\AppData\\Local\\MineForgeAI",
+  "workspace": "E:\\Game Work\\MineForgeAI Omniverse",
+  "created_at": "2026-06-22T08:14:51.336918+00:00"
+}

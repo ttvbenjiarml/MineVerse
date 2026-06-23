@@ -84,8 +84,6 @@ class LocalModelRuntime:
                 next_token = sample_next_token(logits, temperature=temperature)
                 token_id = int(next_token.item())
                 generated.append(token_id)
-                if token_id == 0:
-                    break
 
         decoded = self.tokenizer.decode(generated[len(input_tokens) :]).strip()
         return decoded
@@ -151,8 +149,6 @@ class LocalModelRuntime:
                 next_token = sample_next_token(logits, temperature=temperature)
                 token_id = int(next_token.item())
                 generated.append(token_id)
-                if token_id == 0:
-                    break
                 # Decode everything so far and yield only the new characters
                 full_text = self.tokenizer.decode(generated[len(input_tokens) :])
                 if len(full_text) > len(prev_text):
@@ -209,14 +205,6 @@ def load_local_model(workspace: Path) -> LocalModelRuntime | None:
         dtype = torch.float16 if profile.precision == "float16" else torch.bfloat16 if profile.precision == "bfloat16" else None
         model.to(device=device, dtype=dtype)
     else:
-        try:
-            from torch import nn
-
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="torch.ao.quantization is deprecated")
-                model = torch.quantization.quantize_dynamic(model, {nn.Linear}, dtype=torch.qint8)
-        except Exception:
-            pass
         model.to(device)
     if hasattr(torch, "compile") and device == "cuda" and profile.performance_tier in {"high", "enthusiast"}:
         try:
